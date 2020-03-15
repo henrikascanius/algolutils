@@ -1,0 +1,536 @@
+; tcmp 880629/hj   translate with connect.no
+begin
+   integer maxchar,maxlin,maxlin1,synclen,lin_dw,buf_dw,lin_hw,buf_hw,p,i;
+   boolean lead_sp,trail_sp,empty_lines,leftside,ff,ctrl;
+   long array la,name1,name2,nameo(1:2);
+
+
+
+   procedure err(s,i);
+   string s; integer i;
+
+   begin
+      write(out,s,<< b>,i,"nl",1);
+      trapmode:=-1;
+      trap(1);
+   end proc. err;
+   
+
+
+   procedure par_err(k,la);
+   value k; integer k; long array la;
+
+   begin
+      write(out,<:*** cmp illegal param: :>);
+      if k extract 12=4 then write(out,<<d>,la(1)) else
+      if k extract 12=10 then write(out,la);
+      outchar(out,'nl');
+      trapmode:=-1;
+      trap(1);
+   end proc par_err;
+   
+
+
+   boolean procedure yes_no(p);
+   integer p;
+
+   begin
+      long array la(1:2);
+      integer i;
+
+      i:=system(4,increase(p),la);
+      if i<>8 shift 12+10 then par_err(i,la);
+      if la(1)=long <:yes:> then yes_no:=true else
+      if la(1)=long <:no:> then yes_no:=false else
+         par_err(i,la);
+   end proc. yes_no;
+
+
+
+   integer procedure intg_par(p,min,max);
+   value min,max; integer p,min,max;
+
+   begin
+      long array la(1:2);
+      integer i;
+
+      i:=system(4,increase(p),la);
+      if i<>8 shift 12+4 then par_err(i,la);
+      if la(1)<min or (la(1)>max and max>0) then par_err(i,la);
+      intg_par:=la(1);
+   end proc. intg_par;
+   
+         
+
+
+   maxchar:=128;
+   maxlin:=100;
+   synclen:=5;
+   
+   lead_sp:=true;
+   trail_sp:=true;
+   empty_lines:=true;
+   ff:=false;
+   ctrl:=false;
+   
+   leftside:=system(4,1,la)=6 shift 12+10;
+   if leftside then
+   begin
+      system(4,0,nameo);
+      p:=2;
+   end else p:=1;
+
+   if if system(4,p,name1)<>4 shift 12+10 then true else
+         system(4,p+1,name2)<>4 shift 12+10 then
+         err(<:use: cmp <file1> <file2>:>,0);
+
+   p:=p+2;
+   for i:=system(4,increase(p),la) while i<>0 do
+   if i<>4 shift 12+10 then par_err(i,la) else
+   if la(1)=long <:lead:> then lead_sp:=yes_no(p) else
+   if la(1)=long <:trail:> then trail_sp:=yes_no(p) else
+   if la(1)=long <:empty:> then empty_lines:=yes_no(p) else
+   if la(1)=long <:ff:> then ff:=yes_no(p) else
+   if la(1)=long <:ctrl:> then ctrl:=yes_no(p) else
+   if la(1)=long <:maxch:> add 'a' then maxchar:=intg_par(p,1,0) else
+   if la(1)=long <:sync:> then sync_len:=intg_par(p,1,0) else
+   if la(1)=long <:diff:> then maxlin:=intgpar(p,1,300) else
+      par_err(i,la);
+
+   maxlin1:=maxlin+synclen;
+   lin_dw:=maxchar//6+1;
+   lin_hw:=lin_dw shift 2;
+   buf_dw:=lin_dw*maxlin;
+   buf_hw:=buf_dw shift 2;
+
+   begin
+      zone array z(2,1024,1,stderror);
+      zone zo(if leftside then 128 else 0,1,stderror);
+      long array buf1,buf2(1:buf_dw);
+      integer lin1,lin2,dlin1,dlin2,i,discr_no;
+      boolean finis,giveup,create_o;
+      long array field ptr1,ptr2;
+      integer array fstlin,lstlin,linptr(1:2),lead(1:2,0:maxlin1-1),
+                    ia(1:10),alpha,alpha_o(0:127);
+      long sp6;
+      
+
+
+      procedure display(z,no,buf,fst,lst);
+      value no,fst,lst; zone z; integer no,fst,lst; long array buf;
+
+      begin
+         integer lin,i;
+         long array field ptr;
+
+         for lin:=fst step 1 until lst do
+         begin
+            ptr:=get_line(no,buf,lin);
+            i:=ptr//lin_hw;
+            write(z,"nl",lead(no,i),buf.ptr,"nl",1);
+         end;
+      end proc. display;
+      
+
+
+      procedure head(z,dno,l1,l2);
+      value dno,l1,l2; zone z; integer dno,l1,l2;
+
+      write(z,<:<10>DISCREPANCY NO.:>,dno,"sp",2,name1,<: line:>,l1,
+            <:, :>,name2,<: line:>,l2,"sp",2);
+            
+
+
+      procedure xreport(z,dno,kind,f1,l1,f2,l2);
+      value dno,kind,f1,l1,f2,l2; zone z; integer dno,kind,f1,l1,f2,l2;
+
+      begin
+
+         head(z,dno,f1,f2);
+         if kind=99 then
+         begin
+            write(z,<:<10>FILES ARE TOO DIFFERENT<10>:>);
+         end else
+         begin
+            case kind of
+            begin
+               write(z,<:END OF FILE ON :>,name1);
+               write(z,<:END OF FILE ON :>,name2);
+               write(z,<:TEXT INSERTED<10>=========>> :>,name2,":",1);
+               write(z,<:TEXT INSERTED<10>=========>> :>,name1,":",1);
+               write(z,<:TEXT REPLACED<10>=========>> :>,name1,":",1);
+            end;
+            outchar(z,'nl');
+            display(z,1,buf1,f1,l1-1);
+            if kind=5 then write(z,<:<10>=========>> :>,name2,":",1,"nl",1);
+            display(z,2,buf2,f2,l2-1);
+            outchar(z,'nl');
+         end;
+
+      end proc. xreport;
+      
+
+
+      procedure report(kind,f1,l1,f2,l2);
+      value kind,f1,l1,f2,l2; integer kind,f1,l1,f2,l2;
+
+      if leftside then xreport(zo,discr_no,kind,f1,l1,f2,l2) else
+                       xreport(out,discr_no,kind,f1,l1,f2,l2);
+      
+
+
+      boolean procedure read_line(no,buf,ptr);
+      value no; integer no; long array buf; long array field ptr;
+
+      begin
+         integer c,e,i,j;
+         boolean b;
+
+         b:=false;
+         e:=0;
+
+         repeat
+            if empty_lines then
+            begin
+               repeat
+                  readchar(z(no),c);
+                  if c='nl' then e:=e+1;
+               until c<>'nl';
+               repeatchar(z(no));
+            end else
+            begin
+               readchar(z(no),c);
+               if c='nl' then
+               begin
+                  i:=ptr//lin_hw;
+                  lead(no,i):=0;
+                  buf.ptr(1):=long <::>;
+                  readline:=b:=true;
+               end else repeatchar(z(no));
+            end;
+
+            if -,b then
+            begin
+               i:=readstring(z(no),buf.ptr,1);
+               if i<0 or i>lin_dw then
+                  err(<:*** cmp: line too long - use 'maxchar':>,0);
+               if i=0 then
+               begin
+                  repeatchar(z(no));
+                  read_line:=false;
+                  b:=true;
+               end else
+               begin
+                  if empty_lines and (lead_sp or trail_sp) then
+                  begin
+                     for j:=i,j-1 while -,b and j>0 do
+                        b:=logor(buf.ptr(j),sp6)<>sp6;
+                     if -,b then e:=e+1;
+                  end else b:=true;
+                  if b then
+                  begin
+                     i:=ptr//lin_hw;
+                     lead(no,i):=e;
+                     repeatchar(z(no));
+                     readchar(z(no),c);
+                     if c='em' then repeatchar(z(no));
+                     read_line:=true;
+                  end;
+               end;
+            end;
+         until b;
+      end proc. read_line;
+
+
+      
+
+      integer procedure get_line(no,buf,lin);
+      value no,lin; integer no,lin; long array buf;
+
+      begin
+         array field ptr;
+
+         if lin<fstlin(no) then system(9,1,<:error:>);
+         if lin>lstlin(no)+1 then system(9,2,<:error:>);
+
+         if lin<=lstlin(no) then
+         begin
+            ptr:=linptr(no)-(lstlin(no)-lin)*linhw;
+            if ptr<0 then ptr:=ptr+buf_hw;
+            get_line:=ptr;
+         end else
+
+         begin 
+            ptr:=linptr(no)+lin_hw;
+            if ptr=buf_hw then ptr:=0;
+            if read_line(no,buf,ptr) then
+            begin
+               if lin>maxlin1 then fstlin(no):=fstlin(no)+1;
+               lstlin(no):=lstlin(no)+1;
+               get_line:=lin_ptr(no):=ptr;
+            end else get_line:=-1;
+         end;
+
+      end proc. get_line;
+      
+
+      
+      boolean procedure compare(l1,l2);
+      long array l1,l2;
+
+      begin
+         integer i,c1,c2,ch1,ch2;
+         boolean b;
+         long l;
+         long field lf1,lf2;
+         long array b1,b2(1:lin_dw);
+
+         tofrom(b1,l1,lin_hw);
+         tofrom(b2,l2,lin_hw);
+
+         lf1:=0;
+         repeat
+            lf1:=lf1+4;
+         until b1.lf1<>b2.lf1 or b1.lf1 extract 8=0;
+
+         if b1.lf1=b2.lf1 then compare:=true else
+         begin
+            b:=false;
+
+            if -,trail_sp then else
+            if b1.lf1 extract 8 = 0 or b2.lf1 extract 8 = 0 then
+            begin  <* check for efterstillede spaces *>
+               l:=logor(b1.lf1,b2.lf1);
+               i:=0;
+               while (l extract 8=0 or l extract 8=32) and l<>0 do
+               begin
+                  i:=i-8;
+                  l:=l shift (-8);
+               end;
+
+               if b1.lf1 shift i <> b2.lf1 shift i then else
+               begin
+                  lf2:=lf1;
+                  if b1.lf1 extract 8=0 then b:=true else
+                  repeat
+                     lf1:=lf1+4;
+                     b:=logor(b1.lf1,sp6)=sp6;  <* kun space og nulkar. *>
+                  until -,b or b1.lf1 extract 8=0;
+
+                  while b and b2.lf2 extract 8 <> 0 do
+                  begin
+                     lf2:=lf2+4;
+                     b:=logor(b2.lf2,sp6)=sp6;
+                  end;
+
+               end;
+            end;
+
+            if b then else
+            if lead_sp then
+            begin  <* check foranstillede spaces *>
+               for i:=0,i while b1(i)=sp6 do i:=i+1;
+               ch1:=i*6-5;
+               for i:=0,i while b2(i)=sp6 do i:=i+1;
+               ch2:=i*6-5;
+               repeat getchar(b1,ch1,c1) until c1<>'sp';
+               repeat getchar(b2,ch2,c2) until c2<>'sp';
+               if ch1=ch2 or c1<>c2 then else
+               repeat  <* forsk. antal spacer, og efterf. tegn er det samme*>
+                  if c1<>0 then getchar(b1,ch1,c1);
+                  if c2<>0 then getchar(b2,ch2,c2);
+                  b:=if trail_sp then (if c1=c2 then true else logor(c1,c2)='sp')
+                                 else c1=c2;
+               until -,b or c1=0 and c2=0;
+
+
+            end;
+
+            compare:=b;
+
+         end;
+      end proc. compare;
+      
+
+
+      boolean procedure xsync(no1,no2,buf1,buf2,fst1,lst1,lin2);
+      value no1,no2,fst1,lin2; integer no1,no2,fst1,lst1,lin2;
+      long array buf1,buf2;
+
+      begin
+         integer lin1,tstlin1,tstlin2,cmp;
+         long array field ptr1,ptr2;
+         boolean b;
+
+         lin1:=fst1;
+
+         repeat
+            tstlin1:=lin1;
+            tstlin2:=lin2;
+            cmp:=0;
+
+            repeat
+               ptr1:=get_line(no1,buf1,tstlin1);
+               ptr2:=get_line(no2,buf2,tstlin2);
+               b:=if ptr1>=0 and ptr2>=0 then compare(buf1.ptr1,buf2.ptr2) else
+                  true;
+               if ptr1>=0 then tstlin1:=tstlin1+1;
+               if ptr2>=0 then tstlin2:=tstlin2+1;
+               cmp:=cmp+1;
+            until -,b or ptr1<0 or ptr2<0 or cmp=sync_len;
+            if -,b then lin1:=lin1+1;
+         until b or lin1>lst1;
+
+         if b then lst1:=lin1;
+         xsync:=b;
+
+      end proc. xsync;
+
+
+      boolean procedure sync(lin1,lin2);
+      integer lin1,lin2;
+
+      begin
+         integer tlin1,tlin2;
+         boolean b;
+         long array field ptr1,ptr2;
+
+         tlin1:=lin1;
+         tlin2:=lin2;
+         ptr1:=ptr2:=0;
+
+         repeat
+            if ptr1>=0 then
+            begin
+               ptr1:=get_line(1,buf1,tlin1+1);
+               if ptr1>=0 then tlin1:=tlin1+1;
+               b:=if ptr1<0 then false else
+                  xsync(2,1,buf2,buf1,lin2,tlin2,tlin1);
+            end;
+
+            if -,b and ptr2>=0 then
+            begin
+               ptr2:=get_line(2,buf2,tlin2+1);
+               if ptr2>=0 then tlin2:=tlin2+1;
+               b:=if ptr2<0 then false else
+                  xsync(1,2,buf1,buf2,lin1,tlin1,tlin2);
+            end;
+            if ptr1<0 and ptr2<0 then b:=true;
+         until b or tlin1=lin1+max_lin or tlin2=lin2+max_lin;
+
+         if b then
+         begin
+            lin1:=if ptr1<0 then tlin1+1 else tlin1;
+            lin2:=if ptr2<0 then tlin2+1 else tlin2;
+         end;
+
+         sync:=b;
+
+      end proc. sync;
+
+      
+      open(z(1),4,name1,0);
+      open(z(2),4,name2,0);
+      
+      if leftside then
+      begin
+         open(zo,4,nameo,0);
+         i:=monitor(52,zo,0,ia);
+         if i=0 then i:=monitor(8,zo,0,ia);
+         if i<>0 then
+         begin
+            ia(1):=1;
+            ia(6):=systime(7,0,0.0);
+            for i:=2,3,4,5,7,8,9,10 do ia(i):=0;
+            i:=monitor(40,zo,0,ia);
+            if i=0 then i:=monitor(52,zo,0,ia);
+            if i=0 then i:=monitor(8,zo,0,ia);
+            if i<>0 then err(<:*** cmp connect output:>,0);
+            create_o:=true;
+         end else
+         begin
+            i:=monitor(42,zo,0,ia);
+            ia(6):=systime(7,0,0.0);
+            monitor(44,zo,0,ia);
+         end;
+      end;
+         
+      for i:=0 step 1 until 127 do
+         alpha(i):=if i>31 and i<127 then 6 shift 12+i else
+                   if i='nl' then 8 shift 12+'nl' else
+                   if i='em' then 8 shift 12+'em' else 
+                   if i='ff' then (if ff then 6 shift 12+'ff'
+                                         else 8 shift 12+'nl') else
+                   if i=0 then 0 else
+                   if ctrl then 6 shift 12+i else 0;
+      intable(alpha);
+      
+      isotable(alpha_o);
+      for i:=1 step 1 until 9, 11, 13 step 1 until 24, 26 step 1 until 31 do
+          alpha_o(i):='@';
+      alpha_o('ff'):='#';
+      outtable(alpha_o);
+      
+      sp6:=long <:     :> add 'sp';
+      discr_no:=lin1:=lin2:=0;
+      fstlin(1):=fstlin(2):=lstlin(1):=lstlin(2):=linptr(1):=linptr(2):=0;
+      giveup:=finis:=false;
+
+      repeat
+         repeat
+            ptr1:=get_line(1,buf1,lin1+1);
+            if ptr1>=0 then lin1:=lin1+1;
+            ptr2:=get_line(2,buf2,lin2+1);
+            if ptr2>=0 then lin2:=lin2+1;
+         until (if ptr1<0 or ptr2<0 then true else -,compare(buf1.ptr1,buf2.ptr2));
+
+         finis:=ptr1<0 and ptr2<0;
+         if finis then else
+         begin
+            discr_no:=discr_no+1;
+            if ptr1<0 then report(1,lin1,lin1,lin2,-1) else
+            if ptr2<0 then report(2,lin1,-1,lin2,lin2);
+         end;
+
+         if ptr1<0 or ptr2<0 then finis:=true else
+         begin
+            dlin1:=lin1;
+            dlin2:=lin2;
+            if -,sync(lin1,lin2) then
+            begin
+               report(99,dlin1,lin1,dlin2,lin2);
+               giveup:=finis:=true;
+            end else
+            begin
+               report(if dlin1=lin1 then 3 else
+                      if dlin2=lin2 then 4 else 5,dlin1,lin1,dlin2,lin2);
+               lin1:=lin1-1;
+               lin2:=lin2-1;
+            end;
+         end;
+
+      until finis;
+
+      close(z(1),true);
+      close(z(2),true);
+      if leftside then outchar(zo,'em');
+
+      if discr_no=0 then
+      begin
+         write(out,<:files are identical<10>:>);
+         if create_o then monitor(48,zo,0,ia);
+      end else
+      begin
+         if leftside and giveup then
+            write(out,<:giveup, files are too different:>,"nl",1);
+            write(out,discr_no,if discr_no=1 then <: discrepancy:>
+                                          else <: discrepancies:>,
+               <: found<10>:>);
+      end;
+
+      if leftside and (discr_no<>0 or -,create_o) then close_cut(zo,true);
+      trapmode:=-1;
+
+   end;
+
+end
