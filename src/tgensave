@@ -1,0 +1,128 @@
+begin
+   zone z,zz(256,2,stderror);
+   integer ent,hw,i,j,k,l,c,n,count,skipseg,skipent;
+   integer field w1,size,nam,content,lb,ub;
+   long array field name,doc;
+   long array la(1:2);
+   integer array ia(1:10);
+   real r;
+
+   w1:=2;
+   size:=16;
+   name:=6;
+   doc:=16;
+   nam:=8;
+   lb:=4;
+   ub:=6;
+   content:=32;
+
+   begin
+      zone cat((system(2,0,la)-3000)//4,1,stderror);
+
+      open(cat,4,<:catalog:>,0);
+
+      open(z,4,<::>,0);
+      for i:=2 step 1 until 10 do ia(i):=0;
+      ia(1):=168;
+      i:=monitor(40,z,0,ia);
+      if i<>0 then system(9,i,<:create:>);
+
+      open(zz,4,<:dumpesej:>,0);
+      for i:=2 step 1 until 10 do ia(i):=0;
+      ia(1):=168;
+      i:=monitor(40,zz,0,ia);
+      if i<>0 and i<>3 then system(9,i,<:create:>);
+
+      write(zz,<:Omr}der p} disc, der ikke dumpes :>,<<zddddd>,systime(5,0,r),
+            ".",1,<<dddd>,r/100-0.3,"nl",2);
+
+      ent:=count:=0;
+      skipseg:=skipent:=i:=j:=k:=0;
+
+      for hw:=inrec6(cat,0) while hw>2 do
+      begin
+         ent:=ent+1;
+         inrec6(cat,if ent mod 15=0 then 36 else 34);
+         if cat.w1=(-1) then else
+         if cat.ub=8388606 then else
+         if cat.w1 extract 2<>3 then else
+         if cat.nam='w' shift 16+'r' shift 8+'k' then else
+         if cat.doc(1)<>long <:disc:> and cat.size>0 and 
+            (cat.lb<>199990 or cat.ub<>199999) then else
+         begin
+            if cat.size<500 or
+                (cat.lb=(-8388607) and cat.ub=8388605) then 
+            begin
+               write(z,cat.name);
+               count:=count+1;
+               if count=3 then
+               begin
+                  count:=0;
+                  outchar(z,'nl');
+               end else outchar(z,'sp');
+
+               if cat.size>=0 then
+               begin
+                  i:=i+1;
+                  j:=j+cat.size;
+               end else k:=k+1;
+            end else
+            begin
+               write(zz,true,12,cat.name,<<dddddd>,cat.size,<<  -ddddddd>,
+                     cat.lb,cat.ub,cat.content shift (-12),"nl",1);
+               skipent:=skipent+1;
+               if cat.size>0 then skipseg:=skipseg+cat.size;
+            end;
+         end;
+      end;
+
+      close(cat,true);
+      outchar(z,'nl');
+      outchar(z,'em');
+      setposition(z,0,0);
+      
+      write(zz,"nl",2,<:total:>,skipent,<: entries,:>,skipseg,<: segments<10>:>);
+      outchar(zz,'em');
+      close(zz,true);
+
+   end;
+
+   write(out,<:disc segments::>,j,<:<10>area entries::>,i,<:<10>non-area entries::>,
+             k,"nl",1);
+
+   begin
+      zone zo(256,2,stderror);
+      long array la(1:(i+k),1:2);
+      boolean b;
+      array a(1:2);
+
+      open(zo,4,<:savelist:>,0);
+      j:=count:=0;
+      for i:=readstring(z,a,1) while i>0 do
+      begin
+         if i=1 then a(2):=real <::>;
+         b:=false;
+         if j=0 then else
+         for n:=1,n+1 while -,b and n<=j do b:=long a(1)=la(n,1) and long a(2)=la(n,2);
+         if -,b then
+         begin
+            n:=1;
+            write(zo,"sp",23-write(zo,string a(increase(n)),<:.scope.perm:>));
+            count:=count+1;
+            if count=3 then
+            begin
+               outchar(zo,'nl');
+               count:=0;
+            end;
+            j:=j+1;
+            la(j,1):=long a(1);  la(j,2):=long a(2);
+         end;
+      end;
+
+      outchar(zo,'em');
+      close(zo,true);
+      close(z,true);
+      monitor(48,z,0,ia);
+   end;
+
+end

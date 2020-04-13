@@ -1,0 +1,238 @@
+begin
+
+
+
+               <***************************************
+               *                                      *
+               *                                      *
+               *      pdisp: display af printerk|     *
+               *      bcp-el sep. 1987, juni 1988     *
+               *                                      *
+               ****************************************>
+
+
+
+
+
+  <***************************************************************
+   *                                                              *
+   * format of a transport description in the spoolarea of primo: *
+   *                                                              *
+   *       +-----------+                                          *
+   *   + 0 !           ! transport name                           *
+   *   + 2 !           !                                          *
+   *   + 4 !           !                                          *
+   *   + 6 !           !                                          *
+   *   + 8 !           ! user name                                *
+   *   +10 !           !                                          *
+   *   +12 !           !                                          *
+   *   +14 !           !                                          *
+   *   +16 !           ! sender name                              *
+   *   +18 !           !                                          *
+   *   +20 !           !                                          *
+   *   +22 !           !                                          *
+   *   +24 !           ! receiver name                            *
+   *   +26 !           !                                          *
+   *   +28 !           !                                          *
+   *   +30 !           !                                          *
+   *   +32 !           ! bs area name                             *
+   *   +34 !           !                                          *
+   *   +36 !           !                                          *
+   *   +38 !           !                                          *
+   *   +40 !           ! mode shift 12+kind of device             *
+   *   +42 !           ! lower cat base of sending process        *
+   *   +44 !           ! upper cat base of sending process        *
+   *   +46 !           ! bs start position halfword (long)        *
+   *   +48 !           !                                          *
+   *   +50 !           ! queue group name (e.g. paper)            *
+   *   +52 !           !                                          *
+   *   +54 !           !                                          *
+   *   +56 !           !                                          *
+   *   +58 !           ! queue name (e.g. a4upright)              *
+   *   +60 !           !                                          *
+   *   +62 !           !                                          *
+   *   +64 !           !                                          *
+   *   +66 !           ! coroutine description address            *
+   *   +68 !           ! transport state                          *
+   *   +70 !           ! cause (if state is aborted or held)      *
+   *   +72 !           ! device status                            *
+   *   +74 !           ! character position (long)                *
+   *   +76 !           !                                          *
+   *   +78 !           ! buffer address of wait and get state     *
+   *   +80 !           ! removetime (>8388605 meens waiting)      *
+   *       +-----------+                                          *
+   *                                                              *
+   ***************************************************************>
+
+   zone transport(128,1,stderror);
+   boolean all,empty;
+   integer transportnr, i, empty_transports;
+   integer array ia(1:20),carr(1:9),rarr(1:26);
+   real array p_navn(1:2);
+
+<* transport description *>
+
+   long array field tr_name,
+                    tr_user,
+                    tr_sname,
+                    tr_rname,
+                    tr_bsname;
+   boolean field    tr_mode,
+                    tr_kind;
+   integer field    tr_baselow,
+                    tr_baseup,
+                    tr_bsstartptr;
+   long array field tr_qgroup,
+                    tr_qname;
+   integer field    tr_couru,
+                    tr_state,
+                    tr_cause,
+                    tr_status,
+                    tr_charposition,
+                    tr_waitmess,
+                    tr_removetime;
+   boolean procedure getrec(z,n);
+   value n; zone z; integer n;
+   begin
+      integer i;
+
+      getrec:=true;
+      i:=inrec6(z,0);
+      if i>=n then
+         inrec6(z,n)
+      else
+      begin
+         inrec6(z,i);
+         transportnr:=transportnr+20;
+         i:=inrec6(z,0);
+         if i>=n then
+            inrec6(z,n)
+         else
+            getrec:=false
+      end;
+      transportnr:=transportnr+82;
+   end;
+
+
+   procedure initfields;
+   begin
+      <* transport description *>
+      tr_name:=0;
+      tr_user:=8;
+      tr_sname:=16;
+      tr_rname:=24;
+      tr_bsname:=32;
+      tr_mode:=41;
+      tr_kind:=42;
+      tr_baselow:=44;
+      tr_baseup:=46;
+      tr_bsstartptr:=50;
+      tr_qgroup:=50;
+      tr_qname:=58;
+      tr_couru:=68;
+      tr_state:=70;
+      tr_cause:=72;
+      tr_status:=74;
+      tr_charposition:=78;
+      tr_waitmess:=80;
+      tr_removetime:=82;
+      transportnr:=-82;
+      empty:=true;
+   end;
+
+   procedure write_transport(z);
+   zone z;
+   begin
+      zone zbs(128,1,stderror);
+      integer size,i,count,active;
+      long array d_name(1:2);
+      real array field sname,laf;
+      integer array sia(1:12);
+      long field chars;
+
+      laf:=4;
+      sname:=12;
+      chars:=46;
+      if empty then
+      write(z,<:
+  printer transport bs.area     size count  disc   user        queue<10><10>:>);
+      empty:=false;
+
+      getshare6(transport,ia,1);
+      tofrom(sia,ia,24);
+      ia(4):=6 shift 12;
+      ia(5):=transport.tr_baselow;
+      ia(6):=transport.tr_baseup;
+      tofrom(ia.sname,transport.tr_bsname,8);
+      setshare6(transport,ia,1);
+      monitor(16,transport,1,ia);
+      if monitor(18,transport,1,ia) <>1 or ia(1)<>0 then
+      begin
+         size:=0;
+         active:=2;
+         count:=0;
+         d_name(1):=real <::>;
+      end
+      else
+      begin
+         size:=ia(2);
+         tofrom(d_name,ia.laf,8);
+         for i:=3 step 1 until 9 do carr(i):=-1;
+         carr(2):=transportnr;
+         transfer(4,carr,9,rarr,26);
+         active:=(if rarr(1)=0 then rarr(21) else 2);
+         count:=if active<>3 and active<>4 or rarr(1)<>0 or rarr.chars=-1
+                then 0 else (rarr.chars+767)//768;   
+      <* count:=ia(8);  *>
+         
+      end;
+      setshare6(transport,sia,1);
+
+      write(z,if active=3 then <:a :> else if active=4 then <:w :> else <:  :>,
+           true,8,transport.tr_rname,
+           <<ddddd     >,transportnr,true,12,transport.tr_bsname,
+           <<bddd  >,size,count,true,7,d_name,
+           true,12,transport.tr_user,
+           transport.tr_qgroup,if transport.tr_qgroup(1)=0 then <::> else
+           <:.:>,transport.tr_qname,<:<10>:>);
+    end;
+
+   <* begin of main program *>
+
+   init_fields;
+
+   for i:=3 step 1 until 9 do carr(i):=-1;
+   for i:=82,512 do
+   begin
+      carr(2):=i;
+      transfer(4,carr,9,rarr,26);
+   end;
+   open(transport,4,<:primospool:>,0);
+   if monitor(4,transport,0,ia)>0 then else
+   if monitor(52)create area process:(transport,0,ia)<>0 then
+      write(out,<:connect input not possible:>);
+   if -,getrec(transport,82) then 
+   write(out,<:<10> primospool er tom:>)
+   else
+   begin
+
+      pnavn(1):=pnavn(2):=real<::>;
+      system(4,1,pnavn);      
+      all:=pnavn(1)=real <:all:> or pnavn(1)=real <::>;
+      empty_transports:=0;
+       
+      while if -,getrec(transport,82) then false else
+            empty_transports<=10         do
+      if transport.tr_sname(1)=0 and
+         transport.tr_rname(1)=0 then empty_transports:=empty_transports+1 else
+      if transport.tr_removetime<=8388605 then <*udskrevet*>  else
+      if transport.tr_rname(1)=long p_navn(1) and
+         transport.tr_rname(2)=long p_navn(2) or all then write_transport(out);
+
+      if empty then write(out,<:<10>ingen ventende primo-transporter<10>:>);
+   end;
+   outchar(out,'nl');
+   close(transport,true);
+   trapmode:=1 shift 10;
+
+end ; 

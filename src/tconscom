@@ -1,0 +1,183 @@
+begin  <* tconscom 850829/hj   translate with connect.no *>
+   zone att,ztim(1,1,stderror),z,cons(50,1,stderror);
+   array s(1:50);
+   long array procname,la(1:2);
+   integer array ia(1:20);
+   integer i,buf,timbuf,ch,op,p,mode;
+   boolean display,b,complete;
+
+
+
+procedure sense(buf,mes);
+value buf; integer buf; integer array mes;
+
+begin
+   zone z(1,1,stderror);
+   integer array ia(1:9);
+
+   ia(1):=0;
+   ia(9):=1;
+   monitor(22,z,buf,ia);
+
+end proc. sense;
+
+
+
+integer procedure output(z,buf,mes);
+value buf; integer buf; integer array mes; zone z;
+
+begin
+   integer array ia(1:20);
+   integer i;
+   getzone6(z,ia);
+   ia(14):=ia(19);
+   ia(15):=ia(14)+ia(20) shift 2;
+   setzone6(z,ia);
+   i:=monitor(70,z,buf,ia);
+   ia(1):=if i=0 then 0 else 1 shift 8;
+   monitor(22,z,buf,ia);
+   output:=if i=0 then ia(3) else 0;
+   if display then
+   begin
+      integer array sia(1:20);
+
+      getzone6(cons,sia);
+      i:=sia(19);
+      getshare6(cons,sia,1);
+      sia(4):=mes(1);
+      sia(5):=i+sia(2);
+      sia(6):=sia(5)+ia(2)-2;
+      setshare6(cons,sia,1);
+      tofrom(cons,z,ia(2));
+      if monitor(16,cons,1,sia)=0 then system(9,6,<:break:>);
+      monitor(18,cons,1,sia);
+   end display;
+
+end proc. output;
+
+
+
+boolean procedure input(s,buf,mes);
+value buf; integer buf; integer array mes; string s;
+
+begin
+   integer i;
+   integer array ia(1:20);
+   zone z(51,1,stderror);
+
+   open(z,0,<::>,0);
+   write(z,s);
+   write(z,"nul",3);
+   getshare6(z,ia,1);
+   i:=ia(2);    <* first shared *>
+   getzone6(z,ia);
+   ia(15):=ia(14);    <* last hw. *>
+   if ia(12)=1 then ia(15):=ia(15)-2;
+   ia(14):=ia(19)+i-1;
+   setzone6(z,ia);
+   i:=monitor(70,z,buf,ia);
+   ia(1):=if i=0 then 0 else 1 shift 8;
+   input:=i=0;
+   monitor(22,z,buf,ia);
+
+end proc. input;
+
+   display:=false;
+   mode:=-1;
+   trapmode:=1 shift 13+1 shift 10;
+   system(7,0,la);
+   open(cons,0,la,0);
+   close(cons,false);
+
+   if system(4,1,procname)<>4 shift 12+10 then system(9,0,<:call:>);
+
+   i:=system(4,2,la);
+   if i shift (-12)=8 then
+   begin
+      if i extract 12<>4 then system(9,1,<:call:>);
+      mode:=la(1);
+      display:=mode>0;
+      p:=3;
+   end else p:=2;
+
+   ch:=1;
+   for i:=system(4,p,la) while i<>0 do
+   begin
+      if ch>1 then putchar(s,ch,if i shift (-12)=8 then '.' else 'sp');
+      if i extract 12=4 then putnumber(s,ch,<<d>,la(1))
+                        else puttext(s,ch,la);
+      p:=p+1;
+   end;
+
+   putchar(s,ch,'nl');
+   putchar(s,ch,0,6);
+
+   open(ztim,0,<:clock:>,0);
+   getshare6(ztim,ia,1);
+   ia(4):=0;
+   ia(5):=5;
+   setshare6(ztim,ia,1);
+
+   open(att,0,procname,0);
+   getshare6(att,ia,1);
+   for i:=4 step 1 until 11 do ia(i):=0;
+   setshare6(att,ia,1);
+
+   complete:=b:=false;
+   if monitor(4,att,0,ia)=0 then
+   begin
+      system(2,0,la);
+      write(out,la,<: *** :>,procname,<: does not exist<10>:>);
+      complete:=true;
+      goto TL;
+   end;
+   if monitor(16,att,1,ia)=0 then system(9,6,<:break:>);
+   trap(TL);
+
+   repeat
+      timbuf:=monitor(16,ztim,1,ia);
+      if timbuf=0 then system(9,6,<:break:>);
+
+      buf:=0;
+      i:=monitor(24,z,buf,ia);
+      if i=1 then
+      begin  <* answer *>
+         if buf=timbuf then trap(1);  <* timeout *>
+         monitor(18,att,1,ia);
+         monitor(82,ztim,1,ia);
+      end else
+
+      begin  <* message *>
+         monitor(82,ztim,1,ia);
+         if buf=0 then system(9,6,<:break:>);
+         monitor(26,z,buf,ia);
+         op:=ia(1) shift (-12);
+         ch:=1;
+
+         if op=3 then
+         begin
+            b:=input(string s(increase(ch)),buf,ia); 
+            display:=mode<>0;
+         end else
+         if op=5 then
+         begin
+            output(z,buf,ia);
+            getshare6(ztim,ia,1);
+            ia(5):=1;
+            setshare6(ztim,ia,1);
+         end else sense(buf,ia);
+
+         complete:=b and op=5;
+      end;
+
+   until false;
+TL:
+   system(2,0,la);
+   if -,complete then write(out,la,<:: *** timeout: :>,procname,"nl",1);
+
+   getshare6(ztim,ia,1);
+   if ia(1)>1 then monitor(82,ztim,1,ia);
+   getshare6(att,ia,1);
+   if ia(1)>1 then monitor(82,att,1,ia);
+
+end

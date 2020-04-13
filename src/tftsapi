@@ -1,0 +1,1180 @@
+begin
+
+<********************************************************************
+*****
+*****                             FTSAPI
+*****   
+*****          Apllication Program Interface for RC8000 FTS.
+*****     Makes it possible to execute the FTS functions (rr, wr)
+*****    from within an application program, by writing simple command
+*****                  lines to an internal process.
+*****   
+*****   
+*****                (c) Henrik Jacobsen january 1992.
+*****             Udviklet for Danmarks Tekniske H|jskole.
+*****   
+*********************************************************************>
+
+
+   integer max_line_chars,max_line_dw,max_chars,max_dw,max_jobs,
+           job_len,qlen_hw,qlen_dw,max_pending;
+   integer field q_opmode,q_messbuf,q_ans_bytes,q_ans_hw;
+   integer array field q_bases;
+   long array field q_com;
+   boolean test,fix_mon_error;
+   long array la(1:2);
+
+   test:=system(4,1,la)<>0 and la(1)=long <:test:>;
+   fix_mon_error:=true;
+
+   max_chars:=4000;  <* max. length of expanded job commands *>
+   max_dw:=(max_chars+5)//6;
+
+   max_line_chars:=128;
+   max_line_dw:=(max_line_chars+5)//6;
+
+   max_jobs:=10;            <* length of job queue *>
+   max_pending:=max_jobs;  <* max. beskeder der ikke er besvaret *>
+
+   q_bases:=0;
+   q_opmode:=6;
+   q_messbuf:=8;
+   q_ans_hw:=10;
+   q_ans_bytes:=12;
+   q_com:=12;
+
+   job_len:=q_com+max_line_dw*4;
+   qlen_hw:=max_jobs*job_len;
+   qlen_dw:=(qlen_hw+3)//4;
+
+
+   begin
+      long array q(1:qlen_dw),fix_name(1:2);
+      boolean fix_flag;
+      integer array item_alpha,line_alpha(0:255),
+                    received_message(1:8);
+      integer jobs_in_q,w_mess_sem;
+      integer array field iaf;
+
+
+<********************************************************************
+*****
+*****                     Specielle procedurer
+*****
+*********************************************************************>
+
+
+      boolean procedure terminate_out;
+      begin  <* fra mosaikrammen... *>
+         own boolean later_call, terminate;
+         if -,later_call then
+         begin
+            integer array ia(1:20); integer kind;
+            getzone6(out,ia); kind:= ia(1) extract 12;
+            terminate:= kind=0 or kind=8 or kind=12 or kind=14;
+            later_call:=true;
+         end;
+         if terminate then setposition(out,0,0);
+         terminate_out:=terminate;
+     end;
+
+<********************************************************************
+*****
+*****        Generelle procedurer for h}ndtering af strings
+*****
+*********************************************************************>
+
+
+
+      boolean procedure insert(s,pos,sub);
+      value pos; long array s,sub; integer pos;
+
+      <* Inserts the substring 'sub' in string 's' at 'pos'.
+         true if insertions succeeds (pos<=len(s)+1 and
+         len(sub)+len(s)<available in s
+         Assumes lower index=1 for s and sub.
+      *>
+
+      begin 
+         integer elems,ls,lsub,p;
+
+         system(3,elems,s);   <* elems:=upper bound *>
+         ls:=len(s);
+         lsub:=len(sub);
+
+         if ls+lsub+1 > elems*6 or pos>ls+1 then insert:=false else
+         begin
+            insert:=true;
+            tofromchar(s,pos+lsub,s,pos+0,ls-pos+2);<* remember to move null *>
+            tofromchar(s,pos+0,sub,1,lsub);
+            p:=ls+lsub+2;
+            putchar(s,p,0,5-(p+4) mod 6);      <* fill rest of dw. *>
+         end;
+
+      end proc. insert;
+
+
+
+
+
+      boolean procedure delete(s,pos,no);
+      value pos,no; long array s; integer no,pos;
+
+      <* Deletes 'no' characters in s from position 'pos' and on.
+         ok (true) if pos<=len(s). 'no' may be greater than actual
+         no. to delete before end of s.
+      *>
+
+      begin 
+         integer ls,p;
+
+         ls:=len(s);
+         if ls<pos then delete:=false else
+         begin
+            delete:=true;
+            if no>ls-pos+1 then no:=ls-pos+1;
+            tofromchar(s,pos+0,s,pos+no,ls-pos-no+2);
+            p:=ls-no+2;
+            putchar(s,p,0,5-(p+4) mod 6);      <* fill rest of dw. *>
+         end;
+
+      end proc. delete;
+
+
+
+
+
+
+      procedure strip(s);
+      long array s;
+
+      <* sletter for- og efterstillede blanke fra strengen s *>
+
+      begin
+         integer pos,ch,l;
+
+         pos:=1;
+         repeat
+            getchar(s,pos,ch);
+         until ch<>32;
+
+         if pos>2 then
+         begin
+            l:=len(s);
+            tofromchar(s,1,s,pos-1,l-pos+2);
+            putchar(s,l-pos+3,0,pos-2);
+         end;
+
+         pos:=len(s);
+         if pos>0 then
+         repeat
+            getchar(s,pos+0,ch);
+            if ch='sp' then
+            begin
+               putchar(s,pos+0,0);
+               pos:=pos-1;
+            end;
+         until ch<>'sp' or pos=0;
+      end proc. strip;
+
+
+
+
+      procedure append_nl(s);
+      long array s;
+
+      <* Sikrer at s er termineret med newline *>
+
+      begin
+         integer l,ch;
+
+         l:=len(s);
+         if l=0 then else
+         begin
+            getchar(s,l,ch);
+            if ch<>'nl' then putchar(s,l+1,'nl');
+         end;
+      end proc. append_nl;
+
+
+
+
+
+      procedure append_null(s);
+      long array s;
+
+      <* Hvis s indeholder 'nl', s} s{t en nulkarakter herefter.
+         Uanset dette, fyld resten af dobbeltordet med 1. nulkar.
+         op med nul'er
+      *>
+
+      begin 
+         integer p;
+         long array nl(1:1);
+
+         nl(1):=long <:<'nl'>:>;
+
+         p:=pos(s,nl);
+         if p>0 then putchar(s,p+1,0);
+
+         p:=len(s)+2;
+         putchar(s,p,0,5-(p+4) mod 6);      <* fill rest of dw.
+                                                verification of formula
+                                                is left to the reader!
+                                             *>
+
+      end proc. append_null;
+
+
+
+
+
+
+      boolean procedure check_nl(s,pos);
+      value pos; long array s; integer pos;
+
+      <* true hvis pos peger p} 'nl' i s. *>
+
+      begin
+         integer ch;
+
+         getchar(s,pos,ch);
+         check_nl:=ch='nl';
+      end proc. check_nl;
+
+
+
+<********************************************************************
+*****
+*****            Global procedure for h}ndtering af fejl
+*****
+*********************************************************************>
+
+
+
+      procedure err_proc(s1,s2,i);
+      string s1; long array s2; integer i;
+
+      begin
+         write(out,<:*** ERROR *** :>,s1,s2,<<   b>,i,"nl",2);
+         terminate_out;
+         trap(1);
+      end;
+
+
+
+<********************************************************************
+*****
+*****         Procedurer til fortolkning af kommandolinier
+*****
+*********************************************************************>
+
+
+
+      long procedure subst_params(call,line);
+      long array call,line;
+
+      <* Hj{lpeproc. til parse_line.
+         Udf|rer paramtersubstitution i kommandolinie:
+         Forekomster af %0..%9 erstattes af param. no. 0..9 (0 er filnavnet).
+         %& erstattes af alt efter filnavn i call.
+         %% erstattes af %. Andre forekomster af % er fejl.
+
+         returv: 0 hvis ok, ellers fejltekst
+      *>
+
+      begin 
+         integer ch,pos1,parno,par_pos;
+         long array param,all_param(1:max_line_dw),delim(1:1);;
+         subst_params:=0;
+         delim(1):=long <:<'%'>:>;
+         pos1:=1;
+         gettext(call,pos1,param);
+         if check_nl(call,pos1-1) then all_param(1):=0 else
+         begin
+            gettext(call,pos1,line_alpha,all_param);
+            strip(all_param);
+         end;
+
+         pos1:=1;
+
+         for pos1:=pos(delim,line,pos1) while pos1>0 do
+         begin
+            getchar(line,pos1+1,ch);
+            if ch=delim(1) shift (-40) then
+            begin  <* %% -> % *>
+               delete(line,pos1,1);
+               pos1:=pos1+1;
+            end else
+
+            if ch='&' then
+            begin  <* copy all *>
+               delete(line,pos1,2);
+               insert(line,pos1,all_param);
+            end else
+               
+            if ch>='0' and ch<='9' then
+            begin  <* subst. single param. *>
+               parno:=ch-'0';
+               par_pos:=1;
+               while parno>0 do
+               begin
+                  gettext(call,par_pos,item_alpha,param);
+                  if check_nl(call,par_pos-1) then parno:=0;  <* call exhausted *>
+                  parno:=parno-1;
+               end;
+
+               if check_nl(call,par_pos-1) then param(1):=0 else
+                  gettext(call,par_pos,item_alpha,param);
+
+               delete(line,pos1,2);
+               insert(line,pos1,param);
+            end else
+            begin
+               subst_params:=long <:Fejlplaceret '%' i fil: :>;
+               pos1:=len(line);
+            end;
+         end;
+               
+      end proc. subst_params;
+
+
+
+
+
+      boolean procedure parse_line(com);
+      long array com;
+
+      <* Ekspanderer kommandoen i com ved at substituere et evt.
+         filnavn (dvs. hvis linien ikke starter med rr el. wr) med
+         indholdet af filen, inkl. parametersubstitution.
+         Retur true hvis det var et filnavn.
+      *>
+
+
+      begin
+         zone z(128,1,stderror);
+         integer line_dw,pos1,ch;
+         long l;
+         boolean no_check;
+         integer array ia(1:10);
+         long array file(1:2),line(1:max_line_dw),delim(1:1),buf(1:max_dw);
+
+         delim(1):=long <:%:>;
+
+         strip(com);
+         append_nl(com);
+
+         no_check:=com(1) shift (-40) <= ']';
+         l:=logor(com(1),long <:  :>) shift (-24) shift 24;
+         if l <> long <:rr :> and l <> long <:wr :> then
+         begin   <* expand *>
+            gettext(com,1,item_alpha,file);
+            open(z,4,file,1 shift 9);
+            i:=monitor(52,z,0,ia);  <* create area process *>
+            if i<>0 then
+               err_proc(<:Fil findes ikke: :>,file,0);
+
+            trap(TL);
+            pos1:=1;
+            buf(1):=0;
+
+            repeat
+               line_dw:=readstring(z,line,1);
+               if line_dw<0 then err_proc(<:Linie for lang: :>,file,0);
+               
+               strip(line);
+               
+               if len(line)=0 then else
+               if line(1) shift (-40) = ';' then else
+               begin
+                  if no_check then line(1):=logand(line(1),-1-long <: :>);
+                  l:=subst_params(com,line);
+                  if l<>0 then err_proc(string l,file,0);
+                  insert(buf,pos1,line);
+                  pos1:=pos1+len(line);
+                  putchar(buf,pos1,'nl');
+               end;
+            until line_dw=0;
+
+            close(z,true);
+            putchar(buf,pos1,0);
+            tofromchar(com,1,buf,1,pos1-1);
+            append_null(com);
+            parse_line:=true;
+         end else parse_line:=false;
+
+         if false then
+TL:      begin
+            close(z,true);
+            trap(1);
+         end;
+            
+      end proc. parse_line;
+
+
+
+
+
+      procedure parse_command(com);
+      long array com;
+
+      <* Ekspanderer kommandoen 'com' rekursivt indtil alle fil-referencer 
+         er v{k.
+         Ekpansion sker ikke egentligt rekursivt. Hermed er der
+         ingen begr{nsning p} antal niveauer af filer, kun p} den totale
+         l{ngde af alle kommandoerne.
+      *>
+
+      begin 
+         integer l_pos,l_len;
+         long array line(1:max_dw);
+
+         strip(com);
+         append_nl(com);
+
+         l_pos:=1;
+         repeat
+            l_len:=gettext(com,l_pos+0,line_alpha,line) shift (-24);
+            if parse_line(line) then
+            begin
+               delete(com,l_pos,l_len+1); <* slet ogs} NL; line bliver *> 
+               insert(com,l_pos,line);    <* strip'ed af parse_line *>
+            end else l_pos:=l_pos+l_len+1;
+         until l_pos>=len(com);
+
+         if test then
+         begin
+            write(out,<:--->:>,com);
+            terminate_out;
+         end;
+      end proc. parse_command;
+
+
+
+<********************************************************************
+*****
+*****               Interface-procedurer til FTSUSER
+*****
+*********************************************************************>
+
+
+
+
+      procedure req_test_output(req,len);
+      value len; array req; integer len;            
+
+      <* Udskriver FTS-request buffer p} out. KUN TIL TEST.
+      *>
+
+      begin 
+         integer i,j;
+         integer field itf;
+
+         for itf:=2 step 2 until len do
+         begin
+            write(out,<<ddddddd >,req.itf,
+                  false add 
+                   (if req.itf shift (-12)>31 and req.itf shift (-12)<126
+                     then req.itf shift (-12) else 'sp'),1,
+                  << dddd   >,req.itf extract 12);
+
+            for i:=-16,-8,0 do
+            begin
+               j:=req.itf shift i extract 8;
+               write(out,false add (if j>32 and j<126 then j else 'sp'),1);
+            end;                                                          
+            outchar(out,'nl');
+         end;
+         terminate_out;
+      end proc. req_test_output;
+
+
+
+
+
+
+
+      integer procedure make_fts_request(command,req,op);
+      long array command; array req; integer op;
+
+      <* Opbygger data area for overf|rsel til ftsuser.
+         command: rr eller wr-kommando (tekst) (call value).
+         req    : data area (return value)
+         op     : operation word, 1. ord i mess til ftsuser (return value)
+
+         make_fts_request: antal hw i req.
+
+         Catalog bases skal v{re sat korrekt.
+      *>
+
+      begin
+         zone z(1,1,stderror);
+         integer cpos,l,w,i,f,j;
+         long array item(1:10),underscore(1:1);
+         integer array bases(1:8),ia(1:17);
+         integer array field ptr;
+         long array field laf,laf0;
+
+         fix_flag:=false;
+         laf0:=0;
+         ptr:=0;
+         cpos:=1;
+         underscore(1):=extend 95 shift 40;  <* til at konv. '_' til 'sp' *>
+         for i:=1 step 1 until 10 do item(i):=0;
+
+         gettext(command,cpos,item_alpha,item);
+         item(1):=logor(item(1),long <:  :>);
+         if item(1)=long <:rr:> then op:=5 shift 12+1 else
+         if item(1)=long <:wr:> then op:=5 shift 12+0 else
+          err_proc(<:Intern fejl: Ukendt kommando: :>,item,0);
+         
+         while -,check_nl(command,cpos-1) do
+         begin
+            for i:=1 step 1 until 10 do item(i):=0;
+            gettext(command,cpos,item_alpha,item);
+            for i:=pos(underscore,item) while i>0 do putchar(item,i,' ');
+
+            if item(1) shift (-32) extract 8 = '.' then
+            begin
+               f:=item(1) shift (-40);
+               req.ptr(1):=f shift 12 + 1;      <* Op shift 12 + length *>
+
+               if f='t' or f='n' or f='b' or 
+                  (f='d' and item(1) shift 16 = long <:yes:>) then       
+               begin
+                  i:=-1;    <* no name part *>       
+                  ptr:=ptr+2;
+                  if item(1) shift 16 <> long <:yes:> then
+                     err_proc(<:Parm. fejl: Kun 'yes' tilladt :>,item,0);
+               end else i:=3;     <* name part starts in item pos. 3 *>
+
+               j:=4;              <*   "          "    req.ptr pos 4 *>
+               if f='u' or len(item)>11
+                  then l:=len(item)-i+1 
+                  else l:=11;     <* chars in name part *>
+            end else
+
+            begin  <* local name part *>
+               close(z,false);
+               open(z,0,item,0);           
+
+               if op extract 12=0 then
+               begin <* Check file exsistence, report from ftsuser seems bad *>
+                  <* lookup head and tail, vi skal bruge baserne *>
+                  if monitor(76,z,0,ia)<>0 or ia(8)<0 then
+                     err_proc(<:wr kan ikke udf|res, fil findes ikke: :>,
+                              item,0);
+               end else
+               if fix_mon_error then
+               begin  <* prevent copy to terminals *>
+                  if monitor(42,z,0,ia)=0 and ia(1)=1 shift 23 + 8 then
+                  begin
+                     laf:=2;
+                     tofrom(fix_name,ia.laf,8);
+                     movestring(item,1,<:ftsapixxx:>);
+                     ia(1):=1;
+                     for i:=2 step 1 until 10 do ia(i):=0;
+                     close(z,false);
+                     open(z,0,item,0);
+                     <* Hvis der bliver lavet 'cleanup' af temp. filer
+                        kan ftsapixxx blive slettet. Derfor laver vi
+                        en arealproces.
+                     *>
+                     repeat
+                        i:=monitor(40,z,0,ia);
+                        i:=if monitor(52,z,0,ia)=0 then 1 else
+                           monitor(40,z,0,ia);
+                     until i<>0;
+                     fix_flag:=true;
+                  end;
+               end;
+
+               req.ptr(1):='L' shift 12+1;   <* local file name part *>
+               i:=1;
+               j:=10;
+               if op extract 12=0 then
+               begin  <* baser = filens baser *>
+                  req.ptr(2):=ia(2);
+                  req.ptr(3):=ia(3);
+               end else
+               begin
+                  system(11,0,bases);     <* get and insert catalog bases *>
+                  req.ptr(2):=bases(1);
+                  req.ptr(3):=bases(2);
+               end;
+               req.ptr(1):=req.ptr(1)+2;
+               l:=11;
+            end;                        
+            if i>0 then
+            begin
+               w:=l//3+1;           <* words, excl. 1st word, incl. null *>
+               laf:=ptr+j//3*2;
+               tofromchar(req.ptr,j,item,i,l);
+               putchar(req.ptr.laf0,j,0);    <* put one null *>
+               append_null(req.laf);    <* fill last dw *>
+
+               req.ptr(1):=req.ptr(1)+w;<* inds. l{ngde *>
+               ptr:=ptr+req.ptr(1) extract 12 shift 1;
+            end;
+         end;
+
+         req.ptr(1):=0;             <* terminator *>
+         make_fts_request:=ptr+2;   <* hw at overf|re *>
+
+      end proc. make_fts_request;
+
+
+
+
+
+      integer procedure send_fts_command(command,req_com);
+      long array command; long array req_com;
+
+      <* Udf|rer fts-kommandoen (rr el. wr) i 'command'.
+         req_com inds. som "requester name" i mess.
+      *>
+
+      begin 
+         zone z(128,1,stderror);
+         integer hw,i;
+         integer array zia(1:20),sia(1:12),answer(1:8);
+         long array field req;
+
+         req:=12;
+
+         getshare6(z,sia,1);
+         hw:=make_fts_request(command,z,sia(4));
+         open(z,0,<:ftsuser:>,1 shift 9);
+         close(z,false);
+         getzone6(z,zia);
+
+         if false then req_test_output(z,hw);
+
+         sia(5):=zia(19)+1;   <* first hw *>
+         sia(6):=sia(5)+hw-1; <* last hw *>
+         sia.req(1):=req_com(1);
+         if req_com(1) extract 8 <> 0 
+            then sia.req(2):=req_com(2)
+            else sia.req(2):=0;
+         setshare6(z,sia,1);
+                                                           
+         if monitor(16,z,1,zia)=0 then system(9,6,<:break:>);
+         i:=monitor(18,z,1,answer);
+
+         send_fts_command:=if i<>1 then (-i) else answer(1);
+
+      end proc. send_fts_command;
+
+
+
+
+      procedure inf_output(buf,mes,ans);
+      value buf; integer buf; integer array mes,ans;
+
+      <* writes received message from ftsuser on ftsapi console
+      *>
+
+      begin 
+         zone zt(128,1,stderror);
+         integer array zia(1:20);
+
+         write(out,<:Received: :>,mes(1) shift (-12),mes(1) extract 12);
+         if mes(1) shift (-12)=5 then
+         begin
+            write(out,<:  FTS message code: :>,mes(5));
+            for i:=1 step 1 until 128 do zt(i):=real <::>;
+            getzone6(zt,zia);
+            zia(14):=zia(19);
+            zia(15):=zia(14)+zia(20) shift 2;
+            setzone6(zt,zia);
+            i:=monitor(70,zt,buf,ans);
+   
+            if i=0 then
+               write(out,"sp",1,zt) 
+               else system(9,i,<:copy:>);
+         end else ans(9):=1;
+         ans(1):=0;
+         outchar(out,'nl');
+         terminate_out;
+      end proc. inf_output;
+
+
+
+
+      integer procedure get_slice_length(name);
+      long array name;
+
+      <* FInder slicelength for disk med ang. navn
+      *>
+
+      begin
+         integer i;
+         boolean b;
+         long array field docname;
+         integer array ntb(1:3),ia(1:1),ch(1:14);
+
+         docname:=16;
+         system(5,92,ntb);
+
+         for i:=ntb(1),i+2 while -,b and i<=ntb(3) do
+         begin
+            system(5,i,ia);
+            system(5,ia(1)-34,ch);
+            b:=name(1)=ch.docname(1) and name(2)=ch.docname(2);
+         end;
+
+         get_slice_length:=if b then ch(14) else -1;
+
+      end proc. get_slice_length;
+
+
+
+      procedure extend_area(mes,ans);
+      integer array mes,ans;
+
+      <* Udf. get disk space operation.
+      *>
+
+      begin 
+         integer i,ext_segs,slicelength;
+         integer array ia(1:20);
+         integer array bases(1:2);
+         zone z(1,1,stderror);
+         long array field fname,docname;
+
+         fname:=8;   <* filename in mess. buffer *>
+         docname:=2; <* docname in entry tail *>
+
+         open(z,0,<::>,0);
+         bases(1):=mes(3);
+         bases(2):=mes(4);
+         if monitor(72,z,0,bases)<>0 then
+            err_proc(<:extend area: Kan ikke s{tte catalog base<10>:>,
+                     mes.fname,i);
+         
+         close(z,false);
+         open(z,0,mes.fname,0);
+         i:=monitor(42,z,0,ia);
+         if i<>0 then
+            err_proc(<:extend area: Kan ikke se fil<10>:>,
+                     mes.fname,i);
+
+         slicelength:=get_slice_length(ia.docname);
+         if slicelength<0 then
+            err_proc(<:extend area: Kan ikke finde disk<10>:>,
+                     ia.docname,0);
+
+         ext_segs:=(ia(1)//slicelength + 1)*slicelength;
+         ia(1):=ia(1)+ext_segs;
+         i:=monitor(44,z,0,ia);   <* change area *>
+         if i<>0 then
+            err_proc(<:extend area: Kan ikke udvide fil<10>:>,
+                     mes.fname,i);
+
+         ans(3):=ext_segs;
+         ans(9):=1;
+      end proc. extend_area;
+
+
+
+      procedure handle_ftsuser_mess(buf,error_check);
+      value buf,error_check; integer buf; boolean error_check;
+
+      <* Beh. besked'er fra ftsuser. Flg. giver mening:
+          5: information. Udskrives p} konsol hvis fts code <> 0 eller test
+          6: get disk space: fors|ges udf|rt
+         \vrige besvares med result=1 og mess. buffer u{ndret, men logges
+         p} konsol.
+      *>
+
+      begin
+         integer array mes(1:8),ans(1:9);
+         zone z(1,1,stderror);
+         integer i;
+
+         trap(TL);
+
+         system(5,buf+8,mes);
+         if (mes(1) shift (-12)<>5 or mes(5)<>0 and error_check) and
+             mes(1) shift (-12)<>6 or test then
+            inf_output(buf,mes,ans) else
+         begin
+            ans(9):=1;
+            if false add mess(1) shift (-12) then
+            begin  <* simulate I/O transfered *>
+               ans(1):=0;
+               ans(2):=mes(3) shift (-1) shift 1 - mes(2) shift (-1) shift 1 + 2;
+               ans(3):=ans(2)+ans(2) shift (-1);
+            end;
+         end;
+
+         if mes(1) shift (-12) = 6 then extend_area(mes,ans);
+         
+         if false then
+TL:        ans(9):=3;
+
+         monitor(22,z,buf,ans);  <* send answer *>
+
+      end proc. handle_ftsuser_mess;
+      
+
+<********************************************************************
+*****
+*****               Hovedprocedurer for job-afvikling
+*****
+*********************************************************************>
+
+      
+      procedure copy_to_term;
+
+      <* Kopierer filen ftsapixxx til terminalprocessen givet i fix_name.
+         Med monitor17.0/ADP6.2 g}r det galt hvis ftsuser skriver direkte
+         til en permanent linket RC3600-terminal (remove process |del{gger
+         procesbeskrivelsen)
+      *>
+
+      begin 
+         integer ch;
+         zone zi(128,1,stderror),zo(10,1,stderror);
+         integer array bases(1:2);
+
+         bases(1):=q.q_bases(1);
+         bases(2):=q.q_bases(2);
+         open(z,0,<::>,0);
+         if monitor(72,z,0,bases)<>0 then
+            err_proc(<:copy to term: Kan ikke s{tte catalog base<10>:>,
+                     q.q_com,0);
+
+         close(z,false);
+
+         open(zi,4,<:ftsapixxx:>,1 shift 9);
+         open(zo,8,fix_name,1 shift 9);
+
+         repeat
+            readchar(zi,ch);
+            if ch<>'em' then outchar(zo,ch);
+         until ch='em';
+
+         monitor(72,z,0,bases);
+         monitor(48,zi,0,bases);  <* remove entry *>
+         close(zi,true);
+         close(zo,false);
+
+      end proc. copy_to_term;
+
+
+
+
+
+      procedure execute(com,buf,fts_code,bytes,error_check);
+      value error_check; long array com; integer buf,fts_code; long bytes; 
+      boolean error_check;
+
+      <* Udfrer een rr/wr kommando.
+         fts_code, bytes returnerer resultat af overf|rlsen.
+      *>
+
+      begin
+         zone dummy(1,1,stderror);
+         integer op_mode,result;
+
+         bytes:=0;
+         fts_code:=1 shift 23;  <* default hvis fejl *>
+
+         append_nl(com);
+         result:=send_fts_command(com,own_name);
+
+         if result<>1 then
+         begin
+            err_proc(<:FTSUSER result<10>:>,com,result);
+         end;
+
+         repeat
+            w_mess_sem:=0;
+            while w_mess_sem=0 do passivate;
+            op_mode:=received_message(1);
+            fts_code:=received_message(5);
+            bytes:=extend received_message(6) add received_message(7);
+            handle_ftsuser_mess(w_mess_sem,error_check);
+            if op_mode extract 1 = 1 and fts_code<>0 and error_check then
+               trap(1);
+         until op_mode extract 1 = 1;
+
+         if fix_flag then copy_to_term;
+
+         w_mess_sem:=-1;   <* kun til pynt *>
+
+      end proc. execute;
+
+
+
+      procedure q_handler;
+
+      <* Udf|rer jobbene! (Udf|res i activity-mode).
+      *>
+
+      begin
+         zone z_cat_base(1,1,stderror);
+         integer c_pos,fts_code;
+         long bytes;
+         boolean error_check;
+         integer array ans(1:9);
+         long array commands(1:max_dw),com(1:max_line_dw);
+         integer array ia(1:20);
+         long array field laf;
+
+
+         <* Definer activity stack *>
+         begin integer array ia(1:max_dw*6); end;
+
+         open(z_cat_base,0,<::>,0);  <* Til at s{tte catalog bases *>
+
+         while true do
+         begin   <* for evig og altid *>
+
+            trap(TL);
+            <* Ventepunkt!!! *>
+            w_mess_sem:=-1;
+            while jobs_in_q=0 do passivate;
+
+            tofrom(ia,q.q_bases,4); <* for kompatibilitet med gl. algol *>
+            if monitor(72,z_cat_base,0,ia)<>0 then
+               err_proc(<:Kan ikke s{tte catalog base<10>:>,
+                        q.q_com,0);
+
+            tofrom(commands,q.q_com,max_line_dw*4);
+            parse_command(commands);
+
+            c_pos:=1;
+            if commands(1)=0 then else
+            repeat
+               gettext(commands,c_pos,line_alpha,com);
+               error_check:=com(1) shift (-40) > ']';
+               trap(TL1);
+               execute(com,q.q_mess_buf,fts_code,bytes,error_check);
+               if false then
+               begin
+TL1:              if error_check then cpos:=len(commands);
+               end;
+               trap(TL);
+            until cpos>=len(commands);
+
+TL:
+            if q.q_messbuf>0 then
+            begin   <* send svar til bestilleren *>
+               ans(1):=fts_code;
+               ans(2):=q.q_ans_hw;
+               ans(3):=q.q_ans_bytes;
+               ans(4):=bytes shift (-24);
+               ans(5):=bytes extract 24;
+               ans(9):=1;
+               monitor(22,z,q.q_messbuf,ans);
+            end;
+
+            <* afstak jobk| *>
+            jobs_in_q:=jobs_in_q-1;
+            laf:=job_len;
+            tofrom(q,q.laf,jobs_in_q*job_len);
+
+            terminate_out;  <* dump evt. runtime fejlmedd. *>
+
+         end;
+
+      end proc. q_handler;
+
+
+<********************************************************************
+*****
+*****        Procedurer til h}ndtering af modtagne beskeder
+*****
+*********************************************************************>
+
+      procedure reject_message(buf,result,status);
+      value buf,result,status; integer buf,result,status;
+
+      begin
+         zone z(1,1,stderror);
+         integer array ia(1:9);
+
+         ia(9):=result;
+         ia(1):=status;
+         monitor(22,z,buf,ia);
+      end proc. reject_message;
+
+
+
+      procedure receive_request(buf);
+      value buf; integer buf;
+
+      <* Inds{tter job i k|en
+      *>
+
+      if jobs_in_q=max_jobs then reject_message(buf,1,1 shift 12) else
+      begin
+         zone zt(128,1,stderror);
+         integer i;
+         integer array pda(1:1),zia(1:20),sia(1:12),ans(1:9);
+         long array field laf,laf8;
+
+         for i:=1 step 1 until 128 do zt(i):=real <::>;
+         laf:=job_len*jobs_in_q;
+         laf8:=8;
+
+         if received_message(1) shift (-12) = 12 then
+         begin  <* newjob-message, name in message buffer *>
+            tofrom(q.laf.q_com,received_message.laf8,8);
+            append_nl(q.laf.q_com);
+
+            system(5,buf+6,pda);
+            system(5,pda(1),zia);
+            if zia(1)<>0 then reject_message(buf,2,0) else   <* not internal *>
+            begin
+               system(5,pda(1)+68,zia);   <* get catbase of requester proc. *>
+               q.laf.q_bases(1):=zia(1);
+               q.laf.q_bases(2):=zia(2);
+               q.laf.q_opmode:=logor(received_message(1),1);
+               q.laf.q_messbuf:=0;
+
+               ans(1):=ans(4):=ans(5):=0;
+               ans(9):=1;
+               monitor(22,zt,buf,ans);    <* send answ. *>
+               jobs_in_q:=jobs_in_q+1;
+            end;
+         end else
+
+         begin
+            <* Hent kommandoen *>
+            getzone6(zt,zia);
+            zia(14):=zia(19);
+            zia(15):=zia(14)+zia(20) shift 2;
+            setzone6(zt,zia);
+            i:=monitor(70,zt,buf,ans);
+            if i<>0 then
+            begin  <* copy fejlet, m}ske stopped *>
+               ans(1):=0;
+               monitor(22,zt,buf,ans);
+            end else
+
+            begin
+               tofrom(q.laf.q_com,zt,len(zt));
+               q.laf.q_bases(1):=received_message(7);
+               q.laf.q_bases(2):=received_message(8);
+               q.laf.q_opmode:=received_message(1);
+
+               if q.laf.q_opmode extract 1 = 1 then
+               begin  <* svar |nskes straks *>
+                  q.laf.q_messbuf:=0;
+                  ans(1):=ans(4):=ans(5):=0;
+                  monitor(22,zt,buf,ans);
+               end else
+               begin
+                  q.laf.q_messbuf:=buf;
+                  q.laf.q_ans_hw:=ans(2);
+                  q.laf.q_ans_bytes:=ans(3);
+               end;
+
+               jobs_in_q:=jobs_in_q+1;
+
+            end;
+
+         end;
+
+      end proc. receive_request;
+
+
+
+
+
+
+<********************************************************************
+*****
+*****               Monitorblok, centralt ventepunkt
+*****
+*********************************************************************>
+
+      
+      procedure central;
+
+      begin
+         zone dummy(1,1,stderror);
+         boolean b;
+         integer base_buf,buf,w_res;
+         integer array ia(1:20);
+         long array field laf;
+
+         activity(1);
+         new_activity(1,0,q_handler);
+         base_buf:=0;
+
+         while true do
+         begin
+            buf:=base_buf;
+            w_res:=w_activity(buf);
+
+            if w_res<0 then base_buf:=buf else  <* umodtageligt svar! *>
+            if w_res>0 then activate(w_res) else  <* kan (n{sten) ikke fejle *>
+            begin
+               system(5,buf+8,received_message);
+               system(5,buf+6,ia);        <* get sender pda *>
+               monitor(26,dummy,buf,ia);  <* get event *>
+               
+               if ia(1)<0 then reject_message(buf,2,0) else  <* regretted *>
+               begin
+                  system(5,ia(1),ia);
+                  laf:=2; 
+                  if ia(1)=0 and ia.laf(1)=long <:ftsus:> add 'e' and
+                     ia.laf(2)=long <:r:> then
+                  begin
+                     if w_mess_sem<>0 then reject_message(buf,2,0) else
+                     begin
+                        w_mess_sem:=buf;
+                        activate(1);
+                     end;
+                  end else
+
+                  if received_message(1) shift (-12)=0 then else
+                  if received_message(1) shift (-12)<>5 and
+                     (false add received_message(1) shift (-12)) then
+                     reject_message(buf,3,0) else  <* unintellegible *>
+                  begin
+                     b:=jobs_in_q=0;
+                     receive_request(buf);
+                     if b and jobs_in_q>0 then activate(1);
+                  end;
+               end;
+            end;
+         end;
+
+      end proc. central;
+
+
+
+
+
+
+
+      zone z(1,1,stderror);
+      integer array mess(1:8);
+      long array own_name(1:2),com(1:60);
+      integer i;
+
+      isotable(item_alpha);
+      for i:=33 step 1 until 126 do item_alpha(i):=6 shift 12+i;
+      for i:=127 step 1 until 255 do item_alpha(i):=0;
+
+      iaf:=-2;
+      tofrom(line_alpha.iaf,item_alpha.iaf,512);
+      line_alpha(32):=6 shift 12+32;  
+      intable(line_alpha);
+
+      system(6,0,own_name);
+      jobs_in_q:=0;
+
+      trapmode:=1 shift 13;  <* suppress trap alarm print *>
+
+      central;  <* main loop *>
+
+   end; <* inner block *>
+
+end

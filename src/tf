@@ -1,0 +1,235 @@
+!       *** tf ***
+; catalog cleaning program - used instead of 'finis'
+; dev. from 'cleartemp'  890314/hj
+; mcl_continue added     890808/hj
+!
+
+cleartemp
+begin
+  !sections 4;
+  procedure next_entry (.w3.;w1);
+  comment   return w1   buf adr of next entry or 0 (after end doc.)
+  ;
+
+  procedure remove_entry (.w3.;w1);
+  comment   call   w1   buf adr of entry
+  ;
+
+  procedure transport (.w3.;w1);
+  comment   return w1   bytes transferred
+  ;
+
+
+  label interrupt, initialize, finis;
+  record entry ( byte fslice,catkeys;
+                 double catbase;
+                 text(11) name
+               );
+  incode
+  word mee;
+  word nul:= 0;
+  word fpbase, h15:=108;
+  word comptr;
+  word maxtempkey:= 2;
+  byte m_op:= 3, m_mode:= 0;
+  ref buffirst, buflast;
+  word m_segm:= 0;
+  text(14) catalog:= "catalog";
+  word lmaxbase, umaxbase, lstdbase, ustdbase, lcatbase, ucatbase;
+  byte finis_op:= 2, finis_mode:= 1; text(20) finis_t:= "finis ";
+  byte mcl_op:=128, mcl_mode:=0; word mcl_id:=0, mcl_len:=5; 
+       text (14) mcl_text:="finis";
+  double pname1, pname2;
+  double tname1,tname2; word tnta;
+
+
+  begin
+    comptr:=w3;
+    monitor(5);
+    mee:=w1;
+    w3:=mee+22;  ! first log. address !
+    fpbase:=w0:=(w3).word;
+
+  initialize:
+    w3:=mee+50;
+    w2:=(w3).word+2;
+    if w0:=(w2).word<>7536640 then goto finis;
+    comment cleanup only performed when parent is s ;
+    w1:=address(initialize);
+    w1+4096;
+    buffirst:= w1;
+    w2:=comptr-2;   ! top core, dont touch fp command !
+    w0:= w2-w1 lshift -9 lshift 9 + w1 - 2;
+    buflast:= w0;
+
+    w3:= mee+68;
+    f1:= (w3).double;
+    lcatbase:= w0;  ucatbase:= w1;
+    w3+4;
+    f1:= (w3).double;
+    lmaxbase:= w0;  umaxbase:= w1;
+    w3+4;
+    f1:= (w3).double;
+    lstdbase:= w0;  ustdbase:= w1;
+
+
+    comment main program;
+    next_entry(.w3.,w1:=0);
+    while w1<>0 do
+    begin
+      w0:= (w1).catkeys extract 3;
+      if w0<=maxtempkey then
+      begin
+        f3:= (w1).catbase;
+        if w2=lstdbase then
+        if w3=ustdbase then
+        remove_entry(.w3.,w1);
+      end;
+      next_entry(.w3.,w1);
+    end;
+
+    w3:= address(catalog);
+    monitor(64); comment remove;
+    w0:= lcatbase; w1:= ucatbase;
+    w3:= address(nul); comment myself;
+    monitor(72); comment set catbase;
+
+  finis:
+    comment check for fp-param.;
+    w3:=comptr;
+    w3+1;
+    !test 1;
+    w2:=(w3).byte;
+    w3+w2;
+    if w0:=(w3).byte=10 then
+    begin comment name param, make replacejob-message instead of finis;
+      w2:=address(finis_op);
+      (w2).byte:=w0:=10;
+      w2+8;
+      (w2).double:=f1:=(w3).double;
+      w3+4;  w2+4;
+      (w2).double:=f1:=(w3).double;
+    end else
+
+    begin comment no param, check for TAS;
+      w3:=(w1:=fpbase+h15).word+2;
+      monitor(4);   ! get prim. outp. pda !
+      if w0:=(w1:=w0).word=64 then
+      begin  ! TAS !
+        w2:=address(tname1);
+        (w2).double:=f1:=(w3).double;
+        w2+4;  w3+4;
+        (w2).double:=f1:=(w3).double;
+        w1:=address(mcl_op);
+        w3:=address(tname1);
+        monitor(16);  ! send mcl continue mess. to session terminal !
+        monitor(18);
+      end else;
+    end;
+
+    w3:= mee+50;
+    w3:= (w3).word+2;
+    pname1:= f1:= (w3).double;
+    w3+4;
+    pname2:= f1:= (w3).double;
+    w1:= address(finis_op); w3:= address(pname1);
+    monitor(16);
+    monitor(18);
+  end;
+
+
+    body of next_entry
+    begin
+      incode
+      word savew0; ref return;
+      ref lastentry:= 0, nextsegm:= 0, lastsegm:= 0;
+        comment pointers in catalog buffer,
+                nextsegm is start of next catalog segment,
+                lastsegm is end of last segment transferred;
+      begin
+        return:= w3; savew0:= w0; w1:= lastentry;
+
+        if w1+(34+33)<nextsegm then w1-33
+        else
+        begin
+          if w1>lastsegm then
+          begin comment start catalog scan or change databuf;
+            transport(.w3.,w1); comment return: bytes transferred;
+            if w1<>0 then
+            begin
+              w0:= b.buffirst;
+              w0+w1-1;
+              lastsegm:= w0;
+              w1:= b.buffirst;
+              w0:= w1+512;
+              nextsegm:= w0;
+            end;
+          end
+          else
+          begin
+            w1:= nextsegm;
+            w0:= w1+512;
+            nextsegm:= w0;
+          end;
+        end;
+
+        w0:= savew0; w3:= return;  lastentry:= w1;
+      end;
+    end;
+
+    body of remove_entry
+    begin
+      incode
+      word savew0,savew1; ref return;
+      word help;
+      begin
+        return:= w3;savew1:= w1; savew0:= w0;
+        w3:= address(b.nul);
+        f1:= (w1).catbase; ! set catalog base !
+        monitor (72); ! to that of entry !
+        w1:= savew1;
+        w3:= w1 + 6;
+        monitor(48);
+        w0:= savew0; w3:= return;
+      end;
+    end;
+
+
+    body of transport
+    begin
+      label rep;
+      incode
+      word status, bytes, chars, w4, w5,w6, w7,w8;
+      word savew0; double savef3;
+      begin
+        savew0:= w0; savef3:= f3;
+      rep:
+        w1:= address(b.m_op);
+        w3:= address(b.catalog);
+        monitor(16);
+        w1:= address(status);
+        monitor(18);
+        w2:= 1 lshift w0 or status; comment compute status;
+        if w0=2 then w0:= 5;
+        if w0=5 then
+        begin comment create area process;
+          monitor(52);
+          if w0=0 then goto rep;
+        end;
+        if w1:=bytes<>0 then b.m_segm:= w0:= w1 lshift -9 + b.m_segm;
+        if w2=2 then
+        begin
+          if w1=0 then goto rep; comment stopped;
+        end
+        else
+        begin
+          if w2<>262146 comment end-doc; then
+          begin
+            comment hard error;
+            key(b.pname1):= w1;
+          end;
+        end;
+        w0:= savew0; f3:= savef3;
+      end;
+    end;
+end.

@@ -1,0 +1,232 @@
+xgem=algol connect.no
+begin
+   
+   
+   integer procedure konverter_6_8(gl_buf,ny_buf,max_buf,checksum);
+   value                                         max_buf ;
+   integer                                       max_buf,checksum ;
+   long array                      gl_buf,ny_buf         ;
+   begin
+      integer t, tsh, fsh, antal, sum;
+      integer field tfv, ffv;
+      for tfv:=2 step 2 until max_buf do ny_buf.tfv := 0;
+      tsh := tfv := fsh := ffv := antal := sum := 0;
+      repeat
+         fsh := fsh + 8;
+         if 0 < fsh then
+         begin
+            fsh := -16;
+            ffv := ffv + 2;
+         end;
+         t := gl_buf.ffv shift fsh extract 8;
+         if 'sp' < t then
+         begin
+            antal := antal + 1;
+            sum := (sum + t) mod 100;
+            if t = 33+63+1 then t := '"' else
+            if t = 33+63+2 then t := "'" extract 8 else
+            if t = 33+63+3 then t := '?' else
+            if t = 33+63+4 then t := '^' ;
+            tsh := tsh - 6;
+            if tsh < 0 then
+            begin
+               tsh := 18;
+               tfv := tfv + 2;
+            end;
+            ny_buf.tfv := ny_buf.tfv + (t-33)shift tsh;
+         end;
+      until t <= 'sp';
+      konverter_6_8 := antal/4*3;
+      
+      checksum := sum;
+      
+   end;
+   <* proc. konverter_6_8... *>
+   
+   integer max_buf;
+   boolean bindestreg;
+   long array ny_buf(1:128);
+   boolean afslut;
+   integer k, n, i, antal, t,bloknr , checksum;
+   long array field laf,laf0;
+   integer field ifv;
+   real    array ra(1 : 2);
+   integer array ia(1:20);
+   boolean         ok;
+   zone z(128,1,stderror);
+   zone zout(128,1,stderror);
+   
+   max_buf := 512;
+   laf0 := 0;
+   bindestreg := false;
+   afslut := false;
+   bloknr := 0;
+   
+   open(z,0,<:v:>,0);
+   i := monitor(42,z,0,ia);
+   close(z,true);
+   if i = 0 and ia(1) < 0 then
+   begin
+      laf := 2;
+      open(z,ia(1) extract 23,ia.laf,0);
+   end 
+   else
+   open(z,0,<:sos:>,0);
+   ok := true;
+   k := system(4,1,ra);
+   if k = 4 shift 12 + 10 then
+   begin
+      open(zout,4,ra.laf0,0);
+      k := monitor(52<* create area process *>,zout,0,ia);
+      if k = 0 then
+      k := monitor(8<* reserve process *>,zout,0,ia);
+      if k <> 0 then
+      begin
+         <* ny entry oprettes *>
+         
+         for i := 1 step 1 until 10 do ia(i) := 0;
+         ia(1) := 1;
+         ia(6) := systime(7,0,0.0);
+         
+         k := monitor(40 <*create entry *>,zout,0,ia);
+         
+         if k = 0 then
+         _   k := monitor(52,zout,0,ia);
+         
+         
+         if k = 0 then
+         _   k := monitor(8,zout,0,ia);
+         
+      end ny entry oprettes;
+      
+      if k <> 0 then
+      begin
+         
+         write(z,<:modtageromr}de p} RC 8000 kan ikke oprettes:>);
+         setposition(z,0,0);
+         ok := false;
+         
+      end;
+      
+   end
+   else
+   begin
+      
+      write(z,<:parameterfejl - ved dkald af gem:>);
+      setposition(z,0,0);
+      ok := false;
+      
+   end;
+   
+   if ok then
+   begin
+      
+      write(z,<:+:> <* acknowledge *>);
+      setposition(z,0,0);
+      
+      
+      
+      repeat
+         k := inrec6(z,0);
+         inrec6(z,k);
+         ifv := 2;
+         n   := if ifv<=k then z.ifv else 0;
+         
+         if n = <:b ":> shift(-24) extract 24 and 4 < k then
+         begin
+            laf := 4;
+            antal := konverter_6_8(z.laf,ny_buf,max_buf,check_sum);
+            ifv := 4;
+            k := z.ifv;
+
+            check_sum := (check_sum + k extract 8) mod 100;
+            
+            if ((k shift(-16) - '0') * 10 + (k shift(-8)) extract 8 - '0') 
+            _                                          = check_sum then
+            begin
+               
+               if (blok_nr + 1) mod 10 = ( k extract 8) - '0' then
+               begin <* ok *>
+                  
+                  ifv := k := 0;
+                  for i:=1 step 1 until antal do
+                  begin
+                     k := k + 8;
+                     if 0 < k then
+                     begin
+                        k := -16;
+                        ifv := ifv + 2;
+                     end;
+                     t := ny_buf.ifv shift k extract 7;
+                     if t = 'cr' and bindestreg then outchar(zout,'-');
+                     if 'sp' <= t or t = 'nl' or t = 'ht' or t = 'ff' then outchar(zout,t);
+                     bindestreg := t = 31;
+                  end;
+
+                  blok_nr := blok_nr + 1;
+                  
+                  setposition(z,0,0);
+                  write(z,<:+:>);
+                  setposition(z,0,0);
+                  
+               end 
+               else
+               if blok_nr mod 10 = (k extract 8) - '0' and 0 < blok_nr then
+               begin <* samme blok modtaget igen, ok *>
+                  setposition(z,0,0);
+                  write(z,<:+:>);
+                  setposition(z,0,0);
+               end 
+               else
+               begin
+                  setposition(z,0,0);
+                  write(z,">",1);
+                  setposition(z,0,0);
+                  afslut := true;
+               end;
+               
+            end 
+            else
+            begin
+               
+               setposition(z,0,0);
+               write(z,<:-:>) <* checksumfejl *>;
+               setposition(z,0,0);
+               
+            end;
+         end
+         else
+         if n shift(-8) = <:ok:> shift(-32) extract  16 then
+         _   afslut := true
+         else
+         begin
+            
+            setposition(z,0,0);
+            write(z,<:-:>);
+            setposition(z,0,0);
+            
+         end;
+         
+      until afslut;
+      
+      
+      write(zout,"em",3);
+      close(zout,true);
+      getposition(zout,0,n);
+      k := monitor(42,zout,0,ia);
+      close(z,true);
+      
+      if k = 0 then
+      begin
+         
+         ia(1) := n;
+         monitor(44 <* change entry *>,zout,0,ia);
+         
+      end;
+      
+   end if ok;
+   
+   trapmode := 1 shift 10;
+end;
+
+

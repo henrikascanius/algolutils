@@ -1,0 +1,234 @@
+<* tchanal vers. 880627/hj   translate w. connect.no *>
+begin
+   integer array ch(1:1040),inf(1:2047*5),ia(1:10);
+   long array file,la(1:2);
+   integer slen,catsize,catstart,i,p,maxent,ent,sl,sc,maxsl,mode,
+           chainstart,s1,s2,min_aux;
+   boolean b;
+   integer field if2,lb,ub,size,ptri;
+   long array field name,ptrn,docname;
+   boolean field bf;
+   array field raf0;
+   
+   begin
+      zone z((system(2,0,la)-10000)//4,1,stderror);
+      
+
+      procedure entry(z);
+      array z;
+
+      begin
+         sl:=z.if2 shift (-12);
+         sc:=0;   <* slice count *>
+
+         repeat
+            sc:=sc+1;
+            bf:=sl+35;
+            ptrn:=sl*10;
+            ptri:=ptrn+10;
+         
+            if sl>maxsl then 
+              write(out,<:slice out of range:>,<< dddd>,sl,<: slice:>,sc,<: of :>,
+                    true,12,z.name,"nl",1);
+            
+            if ch.bf extract 12=2048 then
+               write(out,<:slice in chain marked as free   sliceno.:>,<< dddd>,sl,
+                     <: slice:>,sc,<: of :>,true,12,z.name,"nl",1)   else
+            begin
+               if inf.ptri=0 then
+               begin
+                  inf.ptri:=sc shift 12;
+                  inf.ptrn(1):=z.name(1);
+                  inf.ptrn(2):=z.name(2);
+               end else
+                  write(out,<:chain overlap  sliceno.:>,<< dddd>,sl,<:  slice:>,
+                        inf.ptri shift (-12),<: of :>,true,12,inf.ptrn,
+                        "nl",1,"sp",30,<:slice:>,sc,<: of :>,true,12,z.name,"nl",1);
+               sl:=sl+ch.bf extract 12 shift 12 //4096;
+            end;
+
+         until ch.bf extract 12=0 or ch.bf extract 12=2048;
+
+         if ch.bf extract 12=2048 then else
+         begin
+            i:=sc*slen;  <* slicecount * slicelength *>
+            if z.size>i then
+               write(out,<:chain too short  :>,true,12,z.name,<< dddd>,z.size,<: segm/:>,
+                     <<d>,sc,<: slices:>,"nl",1) else
+            if z.size<i-slen+1 then
+               write(out,<:chain too long (no error) :>,true,12,z.name,<< dddd>,z.size,<: segm/:>,
+                     <<d>,sc,<: slices:>,"nl",1);
+         end;
+
+      end proc. entry;
+
+
+      raf0:=0;
+      if2:=2;
+      lb:=4;
+      ub:=6;
+      name:=6;
+      size:=16;
+      docname:=16;
+
+      if system(4,1,file)<>4 shift 12+10 then system(9,0,<:param:>);
+
+      begin
+         integer array ntb(1:3);
+
+         system(5,92,ntb);
+
+         for i:=ntb(1),i+2 while -,b and i<=ntb(3) do
+         begin
+            system(5,i,ia);
+            system(5,ia(1)-34,ch);
+            b:=file(1)=ch.docname(1) and file(2)=ch.docname(2);
+         end;
+
+         if b then
+         begin
+            open(z,4,ch.name,0);
+         end;
+
+      end;
+   
+      if b then mode:=1 else
+      begin
+         open(z,6,file,0);
+         i:=monitor(4,z,0,ia);
+         if i>0 then system(5,i,ia);
+         if ia(1)<>62 then i:=0;
+         b:=i>0;
+         if b then mode:=2 else
+         begin
+            close(z,false);
+            open(z,4,file,0);
+            b:=monitor(42,z,0,ia)=0;
+            if b then mode:=3;
+         end;
+      end;
+
+      if -,b then system(9,0,<:inp.:>);
+
+      p:=2;
+      i:=system(4,p,la);
+      if i=8 shift 12+4 then chainstart:=la(1) else
+      begin
+         chainstart:=0;
+         p:=p-1;
+         if i<>0 and i shift (-12)<>4 then system(9,p,<:param:>);
+      end;
+   
+      if mode>1 then
+      begin
+         setposition(z,0,chainstart);
+         inrec6(z,2080);
+         tofrom(ch,z,2080);
+      end;
+
+      slen:=ch(14);
+      catstart:=chainstart +(if mode=1 then 0 else ch(1) shift (-12)*slen);
+      catsize:=ch(8);
+      maxent:=catsize*15;
+      maxsl:=ch(15) shift (-12);
+
+      write(out,<:<'nl'>check of catalog and chaintable - input: :>,
+            case mode of(<:mounted bs-device :>,<:disc process :>,<:bs-area :>),file);
+      if chainstart>0 then write(out,<: segm.:>,chainstart);
+      write(out,<<d>,
+            <:<'nl'>docname:            :>,ch.docname,
+            <:<'nl'>auxcat name:        :>,ch.name,
+            <:<'nl'>catsize:            :>,catsize,<: segm.:>,
+            <:<'nl'>slicelength:        :>,slen,<: segm.:>,
+            <:<'nl'>number of slices:   :>,maxsl+1,
+            "nl",2);
+
+      for i:=1 step 1 until 2047*5 do inf(i):=0;
+
+      setposition(z,0,catstart);
+
+      entry(ch.raf0);  <* the auxcat entry *>
+
+      for ent:=1 step 1 until maxent do
+      begin
+         inrec6(z,if ent mod 15=0 then 36 else 34);
+         if z.if2>0 and z.size>0 then entry(z);
+      end;
+   
+      if mode=1 then
+      begin  <* scan maincat for temp. areas *>
+         close(z,true);
+         open(z,4,<:catalog:>,0);
+         if monitor(42,z,0,ia)<>0 then system(9,0,<:maincat?:>);
+         maxent:=ia(1)*15;
+         system(5,118,ia);
+         min_aux:=ia(1) extract 12;
+
+         for ent:=1 step 1 until maxent do
+         begin
+            inrec6(z,if ent mod 15=0 then 36 else 34);
+            if z.if2<0 or z.size<=0 then else
+            if z.if2 extract 3>=min_aux then else
+            if z.lb=(-8388607) and z.ub=8388606 then else
+            if z.docname(1)<>ch.docname(1) or z.docname(2)<>ch.docname(2) then else
+               entry(z);
+         end;
+      end;
+         
+      i:=ch(1) shift (-12);
+      ptri:=i*10;
+      b:=false;
+      sc:=0;
+
+      for sl:=i step 1 until maxsl do
+      begin
+         ptri:=ptri+10;
+         if inf.ptri=0 then
+         begin
+            bf:=sl+35;
+            if ch.bf extract 12<>2048 then
+            begin
+
+               if -,b then write(out,
+   <:<'nl'>occupied slices not described in auxcat:>,
+   if mode=1 then <: or as temp. entries in maincat:<10>:> else <::<10>:>);
+               b:=true;
+   
+               sc:=sc+1;
+               if sc=15 then begin outchar(out,'nl'); sc:=1 end;
+               write(out,<< dddd>,sl);
+            end;
+
+         end;
+      end;
+
+      close(z,true);
+
+      write(out,"nl",2);
+
+      p:=p+1;
+      for i:=system(4,p,la) while i<>0 do
+      begin
+         if i<>4 shift 12+4 then system(9,p,<:param:>);
+         s1:=la(1);
+         if system(4,p+1,la)=8 shift 12+4 then
+         begin
+            p:=p+1;
+            s2:=la(1);
+         end else s2:=s1;
+
+         for sl:=s1 step 1 until s2 do
+         begin
+            ptrn:=sl*10;
+            ptri:=ptrn+10;
+            write(out,<:sliceno.:>,sl);
+            if sl<ch(1) shift (-12) then write(out,<: is part of the chaintable<'nl'>:>) else
+            if inf.ptri=0 then write(out,<: is free<'nl'>:>) else
+            write(out,<: is slice:>,inf.ptri shift (-12),<: of :>,inf.ptrn,"nl",1);
+         end;
+         p:=p+1;
+
+      end;
+   
+   end;
+end

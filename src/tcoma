@@ -1,0 +1,81 @@
+     s. a100,b100
+     w.
+     0,0
+
+     ds.   w3   a13.            ; save w2, w3
+     rs.   w1   a11.            ; save w1
+     al.   w1   a1.             ; get comm. startaddr.
+     sn    w2   x3
+     jl.        b5.             ; jump if no lefth. side in call
+
+     zl.   w0   a5.             ; check for leftside in comm.
+     se    w0   6
+     al.   w1   a0.             ; if leftside in comm - then replace it
+     dl    w0   x2+4            ; move leftside
+     ds    w0   x1+4
+     dl    w0   x2+8
+     ds    w0   x1+8
+     rl    w0   x2+10
+     rs    w0   x1+10           ; end move
+
+b5:  rl    w2   2               ; w2:=w1; (start of comm)
+b2:  zl    w0   x2+1            ; itemlength to w0
+     sn    w0   0
+     jl.        b3.             ; jump on end of list
+     ba    w2   1               ; next item
+     jl.        b2.
+
+b3:  ds.   w2   a3.             ; save w1,w2 
+     ws    w1   4               ; w1:=w1-w2; (= -hws in comm.)
+     rl.   w2   a13.            ; w2:=savedw3
+     wa    w1   4               ; w1:=w1+w2 (=dest. addr for dummy call)
+     dl    w0   x2+2            ; move dummycall (prog. part of own call)
+     ds    w0   x1+2
+     dl    w0   x2+6
+     ds    w0   x1+6
+     rl    w0   x2+8
+     rs    w0   x1+8            ; end move
+     
+     am.        (a11.)
+     rs    w1   h8              ; update fp curr. command pointer
+
+     al    w3   x2+10           ; dest. addr. for comm.
+     rl.   w2   a3.             ; source addr.
+
+b4:  al    w2   x2-2            ; w2:=last word to move
+     al    w3   x3-2            ; w3:=last dest. word
+     rl    w0   x2
+     rs    w0   x3              ; move word
+     se.   w2   (a2.)
+     jl.        b4.             ; repeat until list moved
+
+     rl.   w1   a11.            ; get fp base
+     al    w2   0               ; result:=ok
+     jl    w3   x1+h7           ; end program
+
+
+a2:  0,0                        ; working locations
+a3=a2+2
+a11: 0,0,0                      ; save w1,w2,w3
+
+a12=a11+2
+a13=a12+2
+
+
+a0:  h. 2,10
+     w. 0,0,0,0               ; leftside may be inserted here
+     h. 0,10
+     w. <:xx:>,0,0,0
+     h. 6,10
+     w. <:char:>,0,0
+     h. 4,4
+     w. 65
+     h. 8,4
+     w. 1
+     h. 2,10
+     w. <:head:>,0,0
+     h. 0,0
+a1=a0+10
+a5=a1+10
+     e.
+     e.

@@ -1,0 +1,45 @@
+begin <* tshow 880916/hj  translate with connect.no *>
+   zone z(1,1,stderror);
+   integer i,maxchains,ch,pda,free,maxsl;
+   integer array ia(0:50),indx(1:4),ctbl(-18:1024),claims(1:8);
+   long array pname(1:2);
+   boolean field bf;
+   long array field docname;
+   integer array field iaf;
+
+   i:=system(4,1,pname);
+   if i=0 then system(6,0,pname) else if i<>4 shift 12+10 then system(9,0,<:call:>);
+
+   system(5,92,indx);
+   maxchains:=(indx(3)-indx(1))//2;
+
+   begin
+      integer array ntb(1:maxchains);
+
+      system(5,indx(1),ntb);
+      docname:=-20;
+      iaf:=-38;
+      
+      write(out,<:<10>free disc space::>);
+
+      for ch:=1 step 1 until maxchains do
+      begin
+         system(5,ntb(ch)-36,ctbl.iaf);
+         if ctbl(-9)<>0 then
+         begin
+            maxsl:=ctbl(-3) shift (-12);
+            free:=0;
+            for bf:=(-1) step 1 until maxsl-1 do
+               if ctbl.bf extract 12=2048 then free:=free+1;
+            
+            write(out,"nl",1,true,12,ctbl.docname,":",1,
+                  <<  dddd>,free,<: slices,:>,<< dddddd>,free*ctbl(-4),
+                  <: segm.:>);
+         end;
+      end;
+   end;
+
+   outchar(out,'nl');
+   trapmode:=1 shift 10;
+
+end

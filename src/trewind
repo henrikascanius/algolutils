@@ -1,0 +1,26 @@
+; program: rewind     unloader baandet paa deviceno. 10
+; 840405    /hj
+begin
+   zone z(1,1,stderror);
+   array tname(1:2);
+   integer i;
+   integer array ia(1:12);
+
+   trapmode:=1 shift 10;
+
+   system(5,74,ia);
+   system(5,ia(1)+20,ia);
+   system(5,ia(1)+2,ia);
+   tofrom(tname,ia,8);
+
+   i:=1;
+   open(z,0,string tname(increase(i)),0);
+   monitor(8,z,0,ia);
+   getshare6(z,ia,1);
+   for i:=6,7,8,9,10,11 do ia(i):=0;
+   ia(4):=8 shift 12;
+   ia(5):=5;
+   setshare6(z,ia,1);
+   if monitor(16,z,1,ia)<>0 then monitor(18,z,1,ia);
+
+end

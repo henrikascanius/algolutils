@@ -1,0 +1,41 @@
+external
+procedure subh_incl;
+
+
+
+
+   begin  <* fors|g at f} inkluderet ego som user af alle subhost-processer *>
+      integer maxdev,dev,i;
+      boolean field bf;
+      boolean idbit;
+      integer array field sys_snyd;
+      integer array ia(1:2),ia1(-20:10),mes(1:8);
+      array a(1:2);
+
+      sys_snyd:=-42;
+      system(5,12+system(6,0,a),ia);
+      bf:=ia(1) shift (-12) shift 12//4096-1;
+      idbit:=false add ia(1);
+
+      system(5,74,ia);
+      maxdev:=(ia(2)-ia(1))//2-1;
+
+      begin
+         integer array nt(1:maxdev);
+
+         system(5,ia(1)+2,nt);  <* device 0 er 'reader' og derfor uinteressant *>
+         for dev:=1 step 1 until maxdev do
+         begin
+            system(5,nt(dev)-40,ia1.sys_snyd);
+            if ia1(0)<>82 then else
+            if (ia1.bf and idbit) extract 12=0 then
+            begin
+               mes(1):=14 shift 12;
+               mes(2):=mes(3):=mes(4):=0;
+               for i:=5,6,7,8 do mes(i):=ia1(i-4);
+               system(10,0,mes);
+             end;
+          end;
+       end;
+   end;
+end

@@ -1,0 +1,657 @@
+external
+procedure hjsortproc(param,keydescr,names,eof,noofrecs1,giveup,bsproc);
+value eof,giveup; 
+integer array param,keydescr;
+array names;
+real eof;
+integer noofrecs1,giveup;
+procedure bsproc;
+
+begin
+   integer key_rec_len,segsperinblock,segsperoutblock,segsperkeyblock,
+           areapda,blocksbase,blocksphase,inbase,inphase,outbase,outphase,
+           fixedlength,maxlength,noofkeys,noofrecs;
+   real cpubase,cpuphase,realbase,realphase;
+
+   boolean check_outfile,logoutput,test,sumcheck;
+
+
+   procedure log(phase);
+   value phase; integer phase;
+
+   if logoutput then
+   begin   <* udskriv statistik p} current output *>
+      integer blocks,i;
+      real cpu,rea;
+      integer array fileops(1:2);
+
+      blocks:=blocksread;
+      cpu:=systime(1,0.0,rea);
+      system(5,areapda+28,fileops); <* antal write og read acc. *>
+
+      i:=1;
+      if phase=0 then write(out,<:sortering af :>,string names(increase(i)),
+         <:<10>fase  cpu-tid  reel tid  prog. segm.  fil ind  fil ud  fil tot.<10>:>)
+      else if phase<>99 then
+<*         write(out,"nl",1,<<dddd>,phase,"sp",2,<<ddddd.d>,cpu-cpuphase,
+                     "sp",3,rea-realphase,"sp",2,<<dddddddddd>,blocks-blocksphase,
+                     "sp",2,<<ddddddd>,fileops(2)-inphase,"sp",2,fileops(1)-outphase,
+                     "sp",2,fileops(1)+fileops(2)-inphase-outphase) 
+*>    else write(out,<:<10>total :>,<<ddddd.d>,cpu-cpubase,"sp",3,rea-realbase,
+                     "sp",2,<<dddddddddd>,blocks-blocksbase,"sp",2,<<ddddddd>,
+                     fileops(2)-inbase,"sp",2,fileops(1)-outbase,"sp",2,
+                     fileops(1)+fileops(2)-inbase-outbase,"nl",2);
+
+
+      cpuphase:=cpu;  realphase:=rea;  blocksphase:=blocks;
+      inphase:=fileops(2);  outphase:=fileops(1);
+
+      if phase=0 then
+      begin
+         cpubase:=cpuphase;  realbase:=realphase;  blocksbase:=blocksphase;
+         inbase:=inphase;  outbase:=outphase;
+      end;
+
+   end log;
+
+
+   check_outfile:=true;
+   logoutput:=true;
+   test:=false;
+
+   segsperinblock:=param(1);
+   segsperoutblock:=param(3);
+   fixedlength:=param(4);
+   sumcheck:=fixedlength=0;
+   maxlength:=param(5);
+   noofkeys:=param(6);
+   if noofkeys<0 then system(9,6,<:param:>);
+   noofrecs:=noofrecs1;
+
+   begin  <* block level 2 *>
+      integer i,pos,first_work,datastart,recs_in_keyblock,rest_in_keyblock,
+              key_file_size,last_in_segm,temp_outfile,kfile,outfilesize;
+
+      boolean sqfile,eofrecmode;
+
+      integer field segm,hwindex,rlen;
+
+      zone z(1,1,stderror);
+
+      integer array keyrec_pos,keyrec_type(1:noofkeys),tail(1:10);
+
+      boolean array key_ascend(1:noofkeys);
+
+
+      boolean procedure compare_keys(r1,r2);
+      array r1,r2;
+
+      begin  <* Sammenligner de to n|gleposter r1 og r2, true hvis r1<=r2. *>
+         integer i;
+         boolean b;
+         integer field itf;
+         long field lf;
+         boolean field bf;
+
+         for i:=1,i+1 while i<=noofkeys and b do
+         begin
+            itf:=lf:=bf:=keyrec_pos(i);
+            b:=case keyrec_type(i) of 
+            (r1.bf extract 12=r2.bf extract 12,
+             r1.itf=r2.itf,
+             r1.lf=r2.lf,
+             real r1.lf=real r2.lf,
+             r1.bf extract 12=r2.bf extract 12);
+         end;
+
+         if b then compare_keys:=true else
+         begin
+            b:=case keyrec_type(i-1) of
+            (r1.bf extract 12 shift 12<r2.bf extract 12 shift 12,
+             r1.itf<r2.itf,
+             r1.lf<r2.lf,
+             real r1.lf<real r2.lf,
+             r1.bf extract 12<r2.bf extract 12);
+            compare_keys:=if key_ascend(i-1) then b else -,b;
+         end;
+
+      end compare_keys;
+
+
+      rlen:=2;   <* length field i var. l{ngde poster *>
+
+      pos:=0;
+      for i:=1 step 1 until noofkeys do
+      begin  <* opbyg beskr. af n|gleposter *>
+         if abs keydescr(i,1)>5 or keydescr(i,1)=0 or
+                keydescr(i,2)<1 or keydescr(i,2)>maxlength then system(9,i,<:keyfield:>);
+         keyrec_type(i):=abs keydescr(i,1);
+         key_ascend(i):=keydescr(i,1)>0;
+         pos:=pos+(case keyrec_type(i) of (1,2,4,4,1));
+
+         if pos extract 1=1 and keyrec_type(i)<>1 and keyrec_type(i)<>5 then pos:=pos+1;
+         keyrecpos(i):=pos;
+      end;
+
+      keyrec_len:=pos+pos extract 1+4;
+      segm:=keyreclen-2;   <* segm. id field *>
+      hwindex:=keyreclen;  <* rel. index field *>
+      segsperkeyblock:=(keyreclen+511)//512;
+
+      recsinkeyblock:=512*segsperkeyblock//keyreclen;
+      restinkeyblock:=512*segsperkeyblock mod keyreclen;
+
+      open(z,0,names,0);
+      i:=monitor(42,z,0,tail);
+      if i<>0 then system(9,i,<:lookup:>);
+      if tail(1)<1 then system(9,tail(1),<:infile:>);
+      sqfile:=tail(9) shift (-12)=21;
+      if sqfile then
+      begin
+         zone zhead(128,1,bsproc);
+         integer field headlen;
+
+         headlen:=12;
+         open(zhead,4,names,giveup);
+         inrec6(zhead,512);
+         datastart:=zhead.headlen;
+         close(zhead,false);
+         segsperinblock:=tail(9) extract 12;
+      end else datastart:=0;
+
+      if segsperoutblock=0 then segsperoutblock:=segsperinblock;
+      if segsperinblock<1 then system(9,1,<:param:>);
+      if segsperoutblock<1 then system(9,3,<:param:>);
+
+      i:=monitor(52,z,0,tail);
+      area_pda:=monitor(4,z,0,tail);   <* process descr. *>
+      if area_pda=0 then system(9,i,<:ar. proc:>);
+
+      if maxlength<2 or maxlength>512*segsperinblock or
+                        maxlength>512*segsperoutblock or 
+                        maxlength extract 1=1 then system(9,5,<:param:>);
+
+      log(0);
+
+      eofrecmode:=-,sqfile and noofrecs<0;
+      if sqfile and noofrecs>tail(10) then system(9,noofrecs,<:nrecs sq:>);
+      if sqfile and noofrecs<=0 then noofrecs:=tail(10);
+      if noofrecs=0 then goto EXIT;
+      if noofrecs<0 then noofrecs:=0;
+
+      if -,eofrecmode and fixedlength=1 then
+      begin  <* find f|rste frie segment *>
+         i:=512*segsperinblock//maxlength;  <* recs per input block *>
+         first_work:=(noofrecs+i-1)//i+datastart;
+      end else first_work:=tail(1);
+
+      begin  <* block level 3, phase 1 *>
+         zone zin(128*segsperinblock,1,bsproc),
+              zkey(128*segsperkeyblock,1,bsproc);
+
+         array field keyrec,keyrec1,first,rec;
+
+         integer reccount,recsinblock,last,cur_segm,len;
+
+         array keys(1:(keyreclen+3)//4);
+
+         long field eoffld,lf,lf1;
+
+         integer field itf,itf1;
+
+         boolean field bf,bf1;
+
+         boolean all_done;
+
+         open(zin,4,names,giveup);
+         open(zkey,4,names,giveup);
+         setposition(zin,0,datastart);
+         setposition(zkey,0,first_work);
+
+         eoffld:=if fixedlength=1 then 4 else 8;
+         cur_segm:=datastart-segsperinblock;
+         rec:=512*segsperinblock;
+         len:=maxlength;
+         reccount:=0;
+         recsinblock:=recsinkeyblock;
+         last:=512*segsperkeyblock-restinkeyblock-keyreclen;
+
+         all_done:=false;
+
+         repeat
+
+            if if rec>=segsperinblock shift 9 then true else
+               if fixedlength=1 then rec+maxlength>segsperinblock shift 9
+                                else zin.rec.rlen=0 then
+            begin
+               inrec6(zin,segsperinblock shift 9);
+               cur_segm:=cur_segm+segsperinblock;
+               rec:=0;
+            end;
+
+            if fixedlength<>1 then len:=zin.rec.rlen;
+
+            if eofrecmode then all_done:=zin.eoffld=long eof;
+
+            if -,all_done then
+            begin
+
+               for i:=1 step 1 until noofkeys do
+               begin
+                  bf:=itf:=lf:=keyrecpos(i);
+                  bf1:=itf1:=lf1:=keydescr(i,2);
+
+                  case keyrectype(i) of
+                  begin
+                     keys.bf:=if bf1>len then false else zin.rec.bf1;
+                     keys.itf:=if itf1>len then 0 else zin.rec.itf1;
+                     keys.lf:=if lf1>len then extend 0 else zin.rec.lf1;
+                     keys.lf:=if lf1>len then real extend 0 else zin.rec.lf1;
+                     keys.bf:=if bf1>len then false else zin.rec.bf1;
+                  end;
+
+               end;
+
+               keys.segm:=cur_segm;
+               keys.hwindex:=rec;
+
+               if recsinblock=recsinkeyblock then
+               begin
+                  outrec6(zkey,512*segsperkeyblock);
+                  recsinblock:=0;
+                  first:=last+keyreclen;
+               end;
+
+               keyrec:=last;
+               i:=recsinblock;
+
+               while i>0 do
+               begin
+                  if -,compare_keys(zkey.keyrec,keys) then keyrec:=keyrec-keyreclen
+                                                     else i:=0;
+                  i:=i-1;
+               end;
+
+               if keyrec>=first then
+               begin
+                  keyrec1:=first-keyreclen;
+                  tofrom(zkey.keyrec1,zkey.first,keyrec-first+keyreclen);
+               end;
+
+               tofrom(zkey.keyrec,keys,keyreclen);
+
+               first:=first-keyreclen;
+               recsinblock:=recsinblock+1;
+               reccount:=reccount+1;
+               rec:=rec+len;
+
+               if -,eofrecmode then all_done:=reccount=noofrecs;
+
+            end;
+
+
+         until all_done;
+
+         tofrom(zkey,zkey.first,last-first+keyreclen);
+
+         noofrecs:=reccount;
+         getposition(zkey,0,i);
+         key_file_size:=i+segsperkeyblock-first_work;
+         if keyfilesize mod segsperkeyblock<>0 then system(9,keyfilesize mod segsperkeyblock,<:err. 1:>);
+         getposition(zin,0,lastinsegm);
+         close(zin,false);
+         close(zkey,false);
+
+         log(1);
+
+      end phase 1;
+
+
+
+      begin  <*block level 3, phase 2 *>
+         zone zkey1,zkey2,zkey3(128*segsperkeyblock,1,bsproc);
+
+         integer missing_at_last,kfile1,kfile2,rcount1,rcount2,strings,
+                 merges,segsinstring,segm1,segm2,recsinstring;
+
+         open(zkey1,4,names,giveup);
+         open(zkey2,4,names,giveup);
+         open(zkey3,4,names,giveup);
+
+         kfile1:=first_work;
+         kfile2:=kfile1+keyfilesize;
+
+         missing_at_last:=if noofrecs mod recsinkeyblock=0 then 0 
+                   else recsinkeyblock-noofrecs mod recsinkeyblock;
+         strings:=keyfilesize//segsperkeyblock;
+         segsinstring:=segsperkeyblock;
+         recsinstring:=recsinkeyblock;
+
+         if test then
+          write(out,<:<10>keyfilesize::>,keyfilesize,<:  missing at last::>,
+                    missingatlast,<:  first work::>,firstwork,<:  recsinstr.::>,
+                    recsinstring,"nl",1);
+
+         while strings>1 do
+         begin
+
+            merges:=strings//2+strings extract 1;
+            segm1:=kfile1;
+            segm2:=segm1+segsinstring;
+
+            setposition(zkey3,0,kfile2);
+
+            for i:=1 step 1 until merges do
+            begin
+
+               rcount1:=recsinstring-(if i>strings//2 then missing_at_last else 0);
+               rcount2:=if i>strings//2 then 0 else
+                        recsinstring-(if i*2=strings then missing_at_last else 0);
+
+               setposition(zkey1,0,segm1);
+               setposition(zkey2,0,segm2);
+               inrec6(zkey1,keyreclen);
+               if rcount2>0 then inrec6(zkey2,keyreclen);
+
+               while rcount1+rcount2>0 do
+               begin
+
+                  if if rcount2=0 then true else
+                     if rcount1=0 then false else compare_keys(zkey1,zkey2) then
+                  begin
+                     outrec6(zkey3,keyreclen);
+                     tofrom(zkey3,zkey1,keyreclen);
+                     rcount1:=rcount1-1;
+                     if rcount1>0 then inrec6(zkey1,keyreclen);
+                  end else
+                  begin
+                     outrec6(zkey3,keyreclen);
+                     tofrom(zkey3,zkey2,keyreclen);
+                     rcount2:=rcount2-1;
+                     if rcount2>0 then inrec6(zkey2,keyreclen);
+                  end;
+
+               end;
+
+               segm1:=segm2+segsinstring;
+               segm2:=segm1+segsinstring;
+
+            end;
+
+            if strings extract 1=1 then missing_at_last:=missing_at_last+recsinstring;
+            strings:=strings//2+strings extract 1;
+            segsinstring:=segsinstring shift 1;
+            recsinstring:=recsinstring shift 1;
+            i:=kfile1;
+            kfile1:=kfile2;
+            kfile2:=i;
+
+         end;
+
+         kfile:=kfile1;
+
+         close(zkey1,false);
+         close(zkey2,false);
+         close(zkey3,false);
+
+         log(2);
+
+      end phase 2;
+
+
+
+
+      begin  <* block level 3, phase 3 *>
+         zone zin(128*segsperinblock,1,bsproc),
+              zout(128*segsperoutblock,1,bsproc),
+              zkey(128*segsperkeyblock,1,bsproc);
+
+         integer segm_in_core,hw_left;
+
+         array field rec;
+
+         open(zin,4,names,giveup);
+         open(zout,4,names,giveup);
+         open(zkey,4,names,giveup);
+
+         temp_outfile:=kfile+keyfilesize;
+
+         setposition(zkey,0,kfile);
+         setposition(zout,0,temp_outfile);
+
+         segm_in_core:=-1;
+
+         for i:=1 step 1 until noofrecs do
+         begin
+
+            inrec6(zkey,keyreclen);
+
+            if zkey.segm<>segm_in_core then
+            begin
+               segm_in_core:=zkey.segm;
+               setposition(zin,0,segm_in_core);
+               inrec6(zin,segsperinblock shift 9);
+            end;
+
+            rec:=zkey.hwindex;
+
+            if fixedlength=1 then
+            begin
+               if test and rec+maxlength>segsperinblock shift 9 then
+                  write(out,<:<10>pointerfejl: recno::>,i,<:  hw::>,rec);
+               hw_left:=outrec6(zout,maxlength);
+               tofrom(zout,zin.rec,maxlength);
+            end else
+            begin
+               hw_left:=outvar(zout,zin.rec);
+               zout(1):=zin.rec(1);   <* undertryk checksum *>
+            end;
+
+         end;
+
+         if eofrecmode and fixedlength=1 then
+         begin
+            hw_left:=outrec6(zout,maxlength);
+            zout(1):=eof;
+         end else
+
+         if eofrecmode and fixedlength<>1 then
+         begin
+            array r(1:2);
+            r.rlen:=maxlength;
+            r(2):=eof;
+            hw_left:=outvar(zout,r);
+         end;
+
+
+         getposition(zout,0,i);
+         outfilesize:=i-tempoutfile+segsperoutblock-hw_left//512;
+
+         close(zout,false);
+         close(zin,false);
+         close(zkey,false);
+
+         log(3);
+
+      end phase 3;
+
+
+
+
+      begin  <* block level 3, phase 4 *>
+         integer segsperblock,hw,insegm,outsegm,blen,segmcount;
+
+         array dummy(1:2);
+
+         begin  <* level 4 *>
+            zone z((system(2,hw,dummy)-74-100)//4,1,bsproc);
+
+            segsperblock:=(hw-74-100)//512;
+            <* halvord til r}dighed: antal frie - 74 halvord til
+               enkeltshared zone - 100 halvord til kald af blokprocedure *>
+
+            open(z,4,names,giveup);
+
+            insegm:=tempoutfile;
+            outsegm:=datastart;
+            segmcount:=outfilesize;
+
+            repeat
+
+               blen:=if segmcount>segsperblock then segsperblock else segmcount;
+               setposition(z,0,insegm);
+               inrec6(z,blen shift 9);
+               setposition(z,0,outsegm);
+               outrec6(z,blen shift 9);
+
+               insegm:=insegm+blen;
+               outsegm:=outsegm+blen;
+               segmcount:=segmcount-blen;
+
+            until segmcount=0;
+
+            close(z,false);
+
+         end level 4;
+
+         log(4);
+
+      end phase 4;
+
+      tail(1):=outfilesize+datastart;
+
+EXIT:
+      if sqfile then
+      begin
+         tail(10):=noofrecs;
+         tail(9):=21 shift 12+segsperoutblock;
+      end;
+
+      i:=monitor(44,z,0,tail);
+      if i<>0 then system(9,i,<:change:>);
+
+      if check_outfile and noofrecs>0 then
+      begin  <* block level 3, phase 5: sequence check *>
+         zone z(128*segsperoutblock,1,bsproc);
+
+         array prev_rec,cur_rec(1:(maxlength+3)//4);
+
+         integer len,keyno,recno,type;
+
+         integer field itf;
+
+          long field lf;
+
+          boolean field bf;
+
+          boolean b,eq,err;
+
+          array field fill;
+
+
+         fill:=4;
+
+
+         if sqfile then
+         begin
+            i:=1;
+            i:=opensq(z,string names(increase(i)),giveup,
+                      if fixedlength=1 then maxlength shift 12+1 else 
+                      if sumcheck then 0 else 1);
+
+            err:=i<>noofrecs;
+
+            if err then
+               write(out,<:<10>*** sbsort check: forkert antal records i sq-fil:>,
+                         <:<10>forventet::>,noofrecs,<:  aktuelt::>,i);
+         end else
+
+         begin
+            open(z,4,names,giveup);
+            err:=false;
+         end;
+
+         if maxlength>2 then
+         begin
+            prev_rec(1):=real <::>;
+            tofrom(prev_rec.fill,prev_rec,maxlength-4);
+         end;
+
+         if fixedlength=1 then inrec6(z,maxlength) else invar(z);
+         tofrom(prev_rec,z,if fixedlength=1 then maxlength else z.rlen);
+
+         len:=maxlength;
+
+         for recno:=2 step 1 until noofrecs do
+         begin
+
+            if fixedlength=1 then inrec6(z,len) else
+            begin
+               invar(z);
+               len:=z.rlen;
+            end;
+
+            if len<maxlength then
+            begin
+               cur_rec(1):=real <::>;
+               tofrom(cur_rec.fill,cur_rec,maxlength-4);
+            end;
+
+            tofrom(currec,z,len);
+
+            for keyno:=1,keyno+1 while keyno<=noofkeys and eq do
+            begin
+
+               type:=keydescr(keyno,1);
+               bf:=itf:=lf:=keydescr(keyno,2);
+
+               eq:=case abs type of
+               (prevrec.bf extract 12=currec.bf extract 12,
+                prevrec.itf=currec.itf,
+                prevrec.lf=currec.lf,
+                real prevrec.lf=real currec.lf,
+                prevrec.bf extract 12=currec.bf extract 12);
+
+               if -,eq then
+               b:=case abs type of
+               (if type>0 then prevrec.bf extract 12 shift 12<=currec.bf extract 12 shift 12
+                          else prevrec.bf extract 12 shift 12>=currec.bf extract 12 shift 12,
+                if type>0 then prevrec.itf<=currec.itf 
+                          else prevrec.itf>=currec.itf,
+                if type>0 then prevrec.lf<=currec.lf
+                          else prevrec.lf>=currec.lf,
+                if type>0 then real prevrec.lf<=real currec.lf
+                          else real prevrec.lf>=real currec.lf,
+                if type>0 then prevrec.bf extract 12<=currec.bf extract 12
+                          else prevrec.bf extract 12>=currec.bf extract 12);
+
+               b:=eq or b;
+
+               if -,b then
+                  write(out,<:<10>sekvensfejl: rec. nr.:>,recno,
+                            <:  n|gle nr::>,keyno);
+
+               err:=err or -,b;
+
+            end;
+
+            tofrom(prevrec,currec,maxlength);
+
+         end;
+
+         close(z,false);
+
+         log(5);
+
+         if err then trap(1);
+
+      end phase 5;
+
+   end block level 2;
+
+   noofrecs1:=noofrecs;
+
+   log(99);
+
+end hjsortproc;
+end

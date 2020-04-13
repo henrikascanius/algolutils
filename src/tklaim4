@@ -1,0 +1,61 @@
+begin <* tklaim 860102/hj  translate with connect.no *>
+      <* modified for algol version 2 rel. 3.0   871204/hj *>
+   zone z(1,1,stderror);
+   integer i,maxchains,ch,pda;
+   integer array ia(0:50),indx(1:4),ctbl(-18:-1),claims(1:8);
+   long array pname(1:2);
+   long array field docname;
+   integer array field iaf;
+
+   i:=system(4,1,pname);
+   if i=0 then system(6,0,pname) else if i<>4 shift 12+10 then system(9,0,<:call:>);
+
+   iaf:=-2;
+   open(z,0,pname,0);
+   pda:=monitor(4,z,0,ia);
+   if pda>0 then system(5,pda,ia.iaf);
+   if pda=0 or ia(0)<>0 then
+   begin
+      write(out,<:*** process unknown: :>,pname,"nl",1);
+      trapmode:=1 shift 13;
+      trap(1);
+   end;
+
+   write(out,<:<10>area:>,ia(13) extract 12,<:   buf:>,ia(13) shift (-12),
+         <:   size:>,ia(12)-ia(11),<:   first core:>,ia(11),"nl",1);
+
+   system(5,92,indx);
+   maxchains:=(indx(3)-indx(1))//2;
+
+   begin
+      integer array ntb(1:maxchains);
+
+      system(5,indx(1),ntb);
+      docname:=-20;
+      iaf:=-38;
+
+      for ch:=1 step 1 until maxchains do
+      begin
+         system(5,ntb(ch)-36,ctbl.iaf);
+         if ctbl(-9)<>0 then
+         begin
+            system(5,pda+ctbl(-18),claims);
+            write(out,"nl",1,ctbl.docname,":",1,ctbl(-4),<: segm/slice:>);
+            if claims(1)+claims(2)+claims(3)+claims(4)=0
+               then write(out,<:  no resources<10>:>) else
+            for i:=1,3,4 do
+            begin
+               write(out,case i of (<:<10>  temp  :>,<::>,<:  login :>,
+                     <:  perm  :>),<<dddddddd>,(claims(i) extract 12))*ctbl(-4),
+                     <: segm:>,claims(i) extract 12,<: slices:>);
+               if i>1 or ntb(ch)=indx(4) then write(out,<<dddddddd>,
+                  claims(i) shift (-12),<: entr:>);
+               outchar(out,'nl');
+            end;
+         end;
+      end;
+   end;
+
+   trapmode:=1 shift 10;
+
+end

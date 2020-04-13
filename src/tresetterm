@@ -1,0 +1,54 @@
+begin  <* resetterm, translate w. connect.no *>
+   zone z(1,1,stderror);
+   long array la(1:2);
+   integer array ia(1:8),sia(1:12);
+   integer array field iaf;
+   integer i,j,p;
+
+   p:=1;
+   for i:=system(4,p,la) while i<>0 or p=1 do
+   begin
+      if i=0 then system(7,0,la) else
+         if i<>4 shift 12+10 then system(9,p,<:param:>);
+      close(z,false);
+      open(z,0,la,0);
+      if i<>0 then
+      begin
+         ia(1):=0;
+         if monitor(28,z,j,ia)<>0 then system(9,p,<:unknown:>) else
+         if false add j then else
+         begin
+            ia(1):=14 shift 12;
+            iaf:=8;
+            tofrom(ia.iaf,la,8);
+            system(10,0,ia);
+            ia(1):=0;
+            i:=monitor(28,z,j,ia);
+         end;
+         if false add j then else system(9,0,<:not user:>);
+         if false add j shift (-3) then system(9,p,<:reserved:>);
+      end;
+
+      getshare6(z,sia,1);
+      sia(4):=134 shift 12;
+      setshare6(z,sia,1);
+      monitor(16,z,1,ia);
+      i:=monitor(18,z,1,ia);
+      if i<>1 then system(9,i,<:lookup:>);
+      ia(2):=ia(2) shift (-15) shift 15 + 1 shift 11
+             + ia(2) shift (-10) extract 1 shift 10
+             + 1;
+             ia(3):=0;
+             ia(4):=7 shift 8;
+             ia(7):=60 shift 8;
+      iaf:=6;
+      tofrom(sia.iaf,ia,16);
+      sia(4):=132 shift 12;
+      setshare6(z,sia,1);
+      monitor(16,z,1,ia);
+      i:=monitor(18,z,1,ia);
+      if i<>1 then system(9,i,<:set spec.:>);
+      p:=p+1;
+   end;
+   trapmode:=-1;
+end;

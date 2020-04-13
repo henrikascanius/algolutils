@@ -1,0 +1,43 @@
+begin <* venteprogram  850930 /hj *>
+   zone z(1,1,stderror),cons(50,1,stderror);
+   integer array sia(1:12);
+   array ra(1:1),cn(1:2);
+   integer i,tim,min,t,d;
+   real r;
+
+   system(7,0,cn);
+   open(cons,8,cn,0);
+
+   repeat
+      repeat
+         setposition(cons,0,0);
+         write(cons,<:Tast ventetid (timer, minutter): :>);
+         setposition(cons,0,0);
+         read(cons,tim,min);
+         setposition(cons,0,0);
+      until tim>=0 and tim<24 and min>=0 and min<60;
+
+      systime(5,0,r);
+      t:=entier(r/100.0);
+      i:=t mod 100+min;
+      if i>59 then
+      begin
+         i:=i-60;
+         t:=t+100;
+      end;
+      t:=(t//100*100+i+tim*100) mod 2400;
+      write(cons,<:<10>K|rslen forts{ttes kl. :>,<<dd.dd>,t/100.0,
+                <:<10>ok? (ja/nej): :>);
+      setposition(cons,0,0);
+      readstring(cons,ra,1);
+   until ra(1)=real <:ja:>;
+
+   open(z,0,<:clock:>,0);
+   getshare6(z,sia,1);
+   sia(4):=0;
+   sia(5):=tim*3600+min*60;
+   sia(6):=sia(7):=0;
+   setshare6(z,sia,1);
+   if monitor(16,z,1,sia)=0 then system(9,6,<:break:>);
+   monitor(18,z,1,sia);
+end

@@ -1,0 +1,42 @@
+begin  <* progr. til m}ling af disc access-tid  961015/hj *>
+   zone zi,zo(128,1,stderror);
+   integer i,j,k,runs,segs;
+   real base,r1,r,totr,totrw;
+
+   systime(1,0,base);
+   runs:=4;
+   segs:=200;
+   open(zi,4,<:testin:>,0);
+   open(zo,4,<:testout:>,0);
+   lock(6,100);
+   totr:=totrw:=0;
+
+   for i:=1 step 1 until runs do
+   begin
+      systime(1,base,r);
+      for j:=1 step 1 until segs do inrec6(zi,512);
+      systime(1,base,r1);
+      r:=r1-r;
+      totr:=totr+r;
+      write(out,<:read: :>,<<ddd.d>,r,<: sec.:>);
+
+      setposition(zi,0,0);
+
+      systime(1,base,r);
+      for j:=1 step 1 until segs do
+      begin
+         inrec6(zi,512);
+         outrec6(zo,512);
+         tofrom(zo,zi,512);
+      end;
+      setposition(zo,0,0);
+      systime(1,base,r1);
+      setposition(zi,0,0);
+      r:=r1-r;
+      totrw:=totrw+r;
+      write(out,<:    read/write: :>,<<ddd.d>,r,<: sec.<10>:>);
+      setposition(out,0,0);
+   end;
+
+   write(out,<:<10>g.sn.::>,<<ddd.d>,totr/runs,<: sec.                :>,totrw/runs,<: sec.<10>:>);
+end

@@ -1,0 +1,23 @@
+begin
+   zone z(128,1,stderror);
+   array tn(1:2);
+   integer i;
+
+   repeat
+      write(out,<:tast b}ndnavn: :>);
+      setposition(out,0,0);
+      i:=readstring(in,tn,1);
+   until i>0;
+   i:=1;
+
+   open(z,18,string tn(increase(i)),0);
+   setposition(z,0,0);
+   outrec6(z,512);
+   for i:=1 step 1 until 128 do z(i):=real <::>;
+
+   movestring(z,1,<:VOL1:>);
+   i:=5;
+   puttext(z,i,tn,-6);
+   setposition(z,0,0);
+   close(z,true);
+end;

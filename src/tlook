@@ -1,0 +1,46 @@
+external
+integer procedure lookup_dev(mode,ident,answ,data);
+value mode; integer mode; integer array ident,answ,data;
+
+begin
+   zone z(10,1,p);
+   integer array an(1:8);
+   integer i;
+
+   procedure p(z,s,b);
+   zone z; integer s,b;
+
+   begin
+      integer array ia(1:20);
+      long field lf;
+      integer i;
+
+      lf:=6;
+      getzone6(z,ia);
+      if ia(2)<>0 then system(9,0,<:error:>) else
+      begin
+         ia.lf:=long <:host:>;
+         setzone6(z,ia);
+         getshare6(z,ia,1);
+         ia(4):=1 shift 12+mode;
+         for i:=7,8,9,10,11 do ia(i):=ident(i-6);
+         setshare6(z,ia,1);
+         if monitor(16,z,1,ia)=0 then system(9,6,<:break:>);
+         i:=monitor(18,z,1,an);
+         if i<>1 then system(9,i,<:host.answ:>);
+         b:=an(2);
+         lookup_dev:=an(1);
+         getzone6(z,ia);
+         for i:=2,3,4,5 do ia(i):=0;
+         setzone6(z,ia);
+      end;
+   end proc. p;
+   open(z,0,<::>,0);
+   i:=inrec6(z,0);
+   inrec6(z,i);
+   tofrom(data,z,i);
+   tofrom(answ,an,16);
+   close(z,false);
+
+end proc. lookup_dev;
+end

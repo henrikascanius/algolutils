@@ -1,0 +1,30 @@
+begin  <* kald: disklabtst <devno>.<label>
+          udhop: ok.yes warning.no: disken har den angivne label
+                 ok.no warning.yes: disken er ikke connected el. er mounted
+                 ok.no warning.no:  disken har en anden label *>
+
+   long array devno,name(1:2);
+   integer array ia(1:1);
+   zone z(128,1,bp);
+   integer i,j,k,l;
+   long array field kitlab;
+
+   procedure bp(z,s,b);
+   zone z; integer s,b;
+   begin
+      errorbits:=3;
+      goto UD;
+   end;
+
+   open(z,6,<::>,0);
+   if system(4,1,devno)<>4 shift 12+4 then system(9,1,<:param:>);
+   if system(4,2,name)<>8 shift 12+10 then system(9,2,<:param:>);
+   monitor(54,z,devno(1) extract 24,ia);
+   inrec6(z,512);
+   kitlab:=16;
+   if z.kitlab(1)<>name(1) or z.kitlab(2)<>name(2) then errorbits:=1;
+   close(z,true);
+   monitor(64,z,0,ia);
+UD:
+   trapmode:=1 shift 10;
+end

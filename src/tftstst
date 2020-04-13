@@ -1,0 +1,16 @@
+begin
+   zone z(128,1,p);
+   integer array ia(1:20);
+   procedure p(z,s,b);
+   zone z; integer s,b;
+      if false add s then stderror(z,s,b);
+      
+   open(z,0,<:ftsapi:>,1 shift 8);
+   getshare6(z,ia,1);
+   ia(10):=199990;
+   ia(11):=199999;
+   setshare6(z,ia,1);
+<* write(z,<:wr s.dthadm1 u.hj w.abc123 t.yes f.hjarb hjarb<10>:>); *>
+   write(z,<:xfer hjarb:>);
+   close(z,true);
+end

@@ -1,0 +1,113 @@
+begin  <* moveto: flyt en fil til an ang. disc
+          kald: moveto <discnavn> <filnavn> <filnavn> ...
+          8705 /hj
+
+          overs{ttes med 'connect.no'
+       *>
+
+   zone z(1,1,stderror);
+   integer array ia(1:20),ia1(1:10),zia(1:20),fb(1:2);
+   integer i,e,ch,count,ent,segs,p;
+   integer array field tail;
+   long array field htext,docname;
+   long array file,to,dummy(1:2);
+   boolean b;
+
+   htext:=6;
+   docname:=2;
+   tail:=14;
+   count:=0;
+   segs:=0;
+
+   p:=1;
+   for i:=system(4,p,dummy) while i<>0 do
+   begin
+      if i<>4 shift 12+10 then system(9,p,if p=1 and i=8 shift 12+10  
+                                      then <:leftside:> else <:param:>);
+      p:=p+1;
+   end;
+
+   system(4,1,to);
+
+   for e:=2 step 1 until p-1 do
+   begin
+      system(4,e,file);
+      open(z,0,file,0);
+      i:=monitor(76,z,0,ia);
+      b:=i=0 and ia.tail(1)>0;;
+      if i<>0 then write(out,true,12,file,<: file unknown<10>:>) else
+      if ia.tail(1)<=0 then write(out,true,12,file,if ia.tail(1)<0 
+                                  then <:not a file:> else <:size=0:>);
+      if b then
+      begin
+         monitor(52,z,0,ia);
+         i:=monitor(8,z,0,ia);
+         b:=i=0;
+         if -,b then write(out,true,12,file,<:   reserve result:>,i,"nl",1);
+      end;              
+      
+      if b then
+      begin
+         close(z,false);
+         open(z,0,<::>,0);
+         ia1(1):=ia.tail(1);
+         tofrom(ia1.docname,to,8);
+         for i:=6,7,8,9,10 do ia1(i):=ia.tail(i);
+         i:=monitor(40,z,0,ia1);
+
+         if i=0 then
+         begin
+            i:=monitor(50,z,ia(1) extract 2,ia1);
+            if i=0 then
+            begin
+               fb(1):=ia(2);  fb(2):=ia(3);
+               i:=monitor(74,z,0,fb);
+               if i<>0 then system(9,i,<:base err.:>);
+            end;
+         end;
+
+         if i<>0 then
+         begin
+            monitor(48,z,0,ia);
+            write(out,true,12,file,<:no room for file on :>,to,"nl",1);
+            close(z,false);
+            open(z,0,file,0);
+            monitor(64,z,0,ia);
+            close(z,false);
+         end else
+
+         begin
+            begin
+               zone zi,zo((system(2,0,dummy)-2000)//8,1,stderror);
+
+               getzone6(z,zia);
+               open(zi,4,file,0);
+               open(zo,4,zia.docname,0);
+
+               i:=inrec6(zi,0);
+               while i>2 do
+               begin
+                  inrec6(zi,i);
+                  outrec6(zo,i);
+                  tofrom(zo,zi,i);
+                  i:=inrec6(zi,0);
+               end;
+
+               i:=monitor(48,zi,0,ia);
+               if i<>0 then system(9,i,<:delete:>);
+               close(zi,false);
+               close(zo,true);
+            end;
+
+            tofrom(ia1,file,8);
+            i:=monitor(46,z,0,ia1);
+            if i<>0 then system(9,i,<:rename:>);
+            close(z,false);
+
+            count:=count+1;
+            segs:=segs+ia.tail(1);
+         end;
+      end;
+   end;
+   trapmode:=1 shift 10;
+end

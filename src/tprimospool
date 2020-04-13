@@ -1,0 +1,204 @@
+begin  <* primospool : varetager kommunikationen mellem primo og 'primospool1'
+          programkald: bprimospool 'primospool1'
+                  sep.87/bcp-el *>
+
+   zone zbs,zcom(128,1,stderror), <* bestemmer max. blokl{ngde pr. overf. *>
+        clock,primo,catbase(1,1,stderror);
+   integer i,j,k,r,adr,read_count,primo_id;
+   integer array zia1(1:20),ia(1:12),ans(1:9),sia1(1:12),ans1(1:9),
+                 savedbase,base(1:2),ap_descr(1:16);
+   array proc(1:2);
+
+
+   integer procedure send(z,ans);
+   zone z; integer array ans;
+
+   <* sender message i z share nr. 1 og venter p} answer. Fors|ger
+      evt. at reparere fejlene 'message rejected' (ved at reservere processen)
+      samt 'process does not exist' (ved at oprette arealproces)
+   *>
+
+   begin
+      integer res;
+
+      if monitor(16,z,1,ans)=0 then system(9,6,<:break:>);
+      <* send message, resultat=0 hvis buffer claim overskredet *>
+
+      res:=monitor(18,z,1,ans);
+      <* wait answer, resultatet i 'res', svaret i 'ans' hvis res=1. *>
+
+      if res=5 then
+      begin  <* process unknown, der fors|ges oprettet en arealproces *>
+         i:=monitor(52,z,0,ans);  <* create area process *>
+         if i=0 then
+         begin
+            res:=send(z,ans); <* pr|v igen, kan evt. give 'rejected' *>
+         end else write(out,<:*** create area process result:>,i,"nl",2);
+      end else
+
+      if res=2 then
+      begin  <* message rejected, fors|g reservation *>
+         i:=monitor(8,z,0,ans);
+         if i=0 then
+         begin
+            res:=send(z,ans);
+         end else write(out,<:*** reserve process result:>,i,"nl",2);
+      end;
+
+      send:=res;
+   end proc. send;
+
+
+
+   trapmode:=1 shift 9;  <* undertryk 'break'-alarm *>
+   trap(TL);
+
+   system(4,1,proc);  <* 1. fp-parameter i programkaldet *>
+   open(zbs,0,proc,0);
+   open(zcom,0,<::>,0);
+   close(zbs,false);
+   close(zcom,false);
+
+   open(catbase,0,<::>,0);
+   close(catbase,true);
+   system(11,0,ia);
+   savedbase(1):=ia(1);
+   savedbase(2):=ia(2);
+
+   <* Venter til primo er startet, og finder derefter primo-processens id *>
+   open(clock,2,<:clock:>,0);
+   getshare6(clock,ia,1);
+   ia(4):=0;
+   ia(5):=5;
+   setshare6(clock,ia,1);
+
+   open(primo,0,<:primo:>,0);
+   close(primo,false);
+   repeat
+      monitor(16,clock,1,ia);
+      monitor(18,clock,1,ia);
+      adr:=monitor(4,primo,1,ia);
+   until adr<>0;
+   system(5,adr,ap_descr);
+   if ap_descr(1)<>0 then
+   begin
+      write(out,<:<10>Programfejl, uden betydning, k|r videre <10>:>);
+      primo_id:=0;
+   end
+   else
+   primo_id:=ap_descr(7);
+
+   while true do
+   begin
+
+      i:=monitor(20,zcom,j,ia);           <* wait message *>
+      if i<=0 then system(9,i,<:mess.:>);
+      if ia(1)=3 shift 12 then
+      begin          <* read in primospoool *> 
+         getzone6(zbs,zia1);
+         getshare6(zbs,sia1,1);
+
+         sia1(4):=ia(1);                 <* operation shift 12 + mode *>
+         sia1(5):=zia1(19)+sia1(2);      <* first hw = bufferbase + first shared *>
+         sia1(6):=sia1(5)+ia(3)-ia(2)+1; <* last hw = first hw + 'blocklength' *>
+
+         for i:=4,5,6,7,8 do sia1(i+3):=ia(i);
+
+         setshare6(zbs,sia1,1);
+
+         i:=send(zbs,ans1);
+         getzone6(zcom,zia1);
+         zia1(14):=zia1(19);   <* record base = bufferbase *>
+         zia1(15):=zia1(14)+ans1(2);    <* last hw = record base + rec.length  *>
+         setzone6(zcom,zia1);
+         tofrom(zcom,zbs,ans1(2));
+         if ans1(2)<=0 then ans1(1):=ans(2):=ans(3):=0 else
+         monitor(70,zcom,j,ans);
+         ans(9):=i;          <* result *>
+         ans(1):=ans1(1);
+      end else
+
+      if ia(1)=5 shift 12 then
+      begin    <* write in primospool *>
+         getzone6(zcom,zia1);
+         zia1(14):=zia1(19);
+         zia1(15):=zia1(14)+ia(3)-ia(2)+1;
+         setzone6(zcom,zia1);
+         monitor(70,zcom,j,ans);
+         tofrom(zbs,zcom,ans(2));
+         getzone6(zbs,zia1);
+         getshare6(zbs,sia1,1);
+
+         sia1(4):=ia(1);
+         sia1(5):=zia1(19)+sia1(2);
+         sia1(6):=sia1(5)+ans(2)-1;
+         for i:=4,5,6,7,8 do sia1(i+3):=ia(i);
+
+         setshare6(zbs,sia1,1);
+         ans1(9):=send(zbs,ans1);
+         tofrom(ans,ans1,18);
+         ans(1):=ans1(1);
+      end else
+
+      if ia(1) = 6 shift 12 then
+      begin <* foresp|rgsel p} filst|rrelse og discnavn *>
+         zone z(128,1,stderror);
+         array field name;
+
+         name:=6;
+         base(1):=ia(2);
+         base(2):=ia(3);
+         i:=monitor(72,catbase,0,base);
+         if i=0 then
+         begin
+            open(z,0,ia.name,0);
+            close(z,true);
+            <* Hvis primo har reserveret en areal-proces til omr}det,
+               findes read-counter'en *>
+            read_count:=0;
+            adr:=monitor(4,z,0,ia);
+            if adr<>0 then
+            begin
+               system(5,adr,ap_descr);
+               if ap_descr(7)<>primo_id then adr:=0;
+               if adr<>0 then read_count:=ap_descr(16);
+            end;
+            <* St|rrelse og disc-navn findes fra catalog-tail *>
+            i:=monitor(42,z,0,ia);
+            monitor(72,catbase,0,savedbase);
+         end;
+         if i=0 then
+         begin
+            ans(1):=0;
+            for i:=1 step 1 until 5 do
+            ans(i+1):=ia(i);
+            ans(7):=adr;
+            ans(8):=read_count;
+         end
+         else
+         begin
+            ans(1):=1 shift 5;
+            for i:=2 step 1 until 8 do ans(i):=0;
+         end;
+      end else
+
+      begin  <* anden op. *>
+         getshare6(zbs,sia1,1);
+         for i:=1 step 1 until 8 do sia1(i+3):=ia(i);
+         setshare6(zbs,sia1,1);
+         i:=send(zbs,ans1);
+         ans(1):=ans1(1);
+      end;
+
+      monitor(22,zcom,j,ans); <* send answer *>
+if false then
+
+      write(out,<: <10>op:    :>,<<ddd>,ia(1) shift (-12),ia(1) extract 12,
+                "sp",5,<: status: :>,<<ddddddd>,ans(1),<:<10>first: :>,ia(2),
+                "sp",5,<:hw:     :>,ans(2),<:<10>last:  :>,ia(3),"sp",5,
+                <:chars:  :>,ans(3),<:<10>segm.: :>,ia(4),"sp",5,
+                <:result: :>,ans(9),"nl",1); 
+
+   end;
+TL:
+end

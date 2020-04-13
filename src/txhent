@@ -1,0 +1,167 @@
+xhent=algol
+begin
+
+  integer max_6_tegn, max_8_tegn, max_6, max_8;
+
+  max_6_tegn := 600;  <* max blokl{ngde i transm. *>
+
+  max_6      := max_6_tegn/3*2;
+  max_8_tegn := (max_6_tegn-3) // 4 * 3;
+  max_8      := max_8_tegn/3*2;
+
+begin
+
+  integer procedure indl{s(buf,max_8_tegn);
+  value                        max_8_tegn ;
+  real array               buf            ;
+  integer                      max_8_tegn ;
+  begin
+    integer tsh, antal;
+    integer field tfv;
+    antal := tsh := tfv := 0;
+    while antal < max_8_tegn and tegn <> 'em' do
+    begin
+      tsh := tsh - 8;
+      if tsh < 0 then
+      begin
+        tsh     := 16;
+        tfv     := tfv + 2;
+        buf.tfv := 0;
+      end;
+      buf.tfv := buf.tfv + tegn shift tsh;
+      antal := antal + 1;
+
+      if tegn <> 'cr' then
+      begin
+        readchar(in,tegn);
+        if tegn = 'nl' then tegn := 'cr';
+      end else
+        tegn := 'nl';
+    end;
+    indl{s := antal;
+  end; <* proc. indl{s... *>
+
+
+  integer procedure konverter_8_6(antal_8_tegn,buf_8,buf_6);
+  value                           antal_8_tegn             ;
+  integer                         antal_8_tegn             ;
+  real array                                   buf_8,buf_6 ;
+  begin
+    integer antal, fsh, tsh, t, i, checksum;
+    integer field ffv, tfv;
+
+    antal := antal_8_tegn//3*4;
+    if antal_8_tegn mod 3 <> 0 then antal := antal + (antal_8_tegn mod 3)+1;
+    tfv := 2;  <* reserver plads til checksum og l|benr *>
+    tsh := ffv := fsh := checksum :=0;
+    for i:=1 step 1 until antal do
+    begin
+      fsh := fsh + 6;
+      if 0 < fsh then
+      begin
+        fsh := -18;
+        ffv := ffv + 2;
+      end;
+      t := (buf_8.ffv shift fsh extract 6) + 33;
+      checksum := checksum + t;
+
+      tsh := tsh - 8;
+      if tsh < 0 then
+      begin
+        tsh := 16;
+        tfv := tfv + 2;
+        buf_6.tfv := 0;
+      end;
+      buf_6.tfv := buf_6.tfv + t shift tsh;
+    end;
+
+    bloknr := bloknr + 1;
+    t := bloknr mod 10 + '0';
+    checksum := checksum + t;
+    buf_6.if2 := (checksum//10 mod 10 + '0') shift 16 +
+                 (checksum     mod 10 + '0') shift 8  +
+                 t <* = bloknr *>                     ;
+    konverter_8_6 := tfv;
+  end; <* proc. konverter_8_6... *>
+
+
+  integer bloknr, i, k, sum, tegn, lgd, type, antal_8_tegn, lgd_buf_6;
+  boolean slut;
+  integer field if2, ifv;
+  long field lf;
+  long array field laf;
+  integer array ia(1:20);
+  real array buf_6(1:max_6/4), buf_8(1:max_8/4);
+  zone z(round(max_6/4),1,stderror);
+ 
+  if2 := 2;
+
+  open(z,0,<:v:>,0);
+  i := monitor(42,z,0,ia);
+  close(z,true);
+  if i = 0 and ia(1) < 0 then
+  begin
+    laf := 2;
+    open(z,ia(1) extract 23,ia.laf,0);
+  end else
+    open(z,0,<:sos:>,0);
+ 
+  slut   := false;
+  bloknr := lgd_buf_6 := 0;
+  readchar(in,tegn);
+  if tegn = 'nl' then tegn := 'cr';
+
+  write(z,<:ok:>);
+  setposition(z,0,0);
+
+  repeat
+    lgd := inrec6(z,0);
+    inrec6(z,lgd);
+    type := if if2 <= lgd then z.if2 shift(-16) else 0;
+    setposition(z,0,0);
+
+    if type = '+' or (type = '-' and lgd_buf_6 = 0) then
+    begin  <* dan en ny blok og send den *>
+      antal_8_tegn := indl{s(buf_8,max_8_tegn);
+
+      if antal_8_tegn = 0 then
+      begin
+        sum := 's';
+        k   := bloknr;
+        lf := 6;
+        buf_6.lf := 0;
+        for i:=0 step 8 until 40 do
+        begin
+          tegn := k mod 10 + '0';
+          buf_6.lf := buf_6.lf + extend tegn shift i;
+          sum  := sum + tegn;
+          k    := k // 10;
+        end;
+        ifv := 2;
+        buf_6.ifv := <:00s:> shift(-24) extract 24 +
+          (sum//10 mod 10) shift 16 +
+          (sum     mod 10) shift 8  ;
+        lgd_buf_6 := 6;
+        slut := true;
+      end else
+        lgd_buf_6 := konverter_8_6(antal_8_tegn,buf_8,buf_6);
+
+        
+      outrec6(z,lgd_buf_6);
+      tofrom(z,buf_6,lgd_buf_6);
+      setposition(z,0,0);
+    end else
+
+    if type = '-' then
+    begin  <* gentag *>
+      outrec6(z,lgd_buf_6);
+      tofrom(z,buf_6,lgd_buf_6);
+      setposition(z,0,0);
+    end else
+
+    if type = '<' or type = '>' then slut := true;
+  until slut;
+
+  trapmode := 1 shift 10;
+end;
+end;

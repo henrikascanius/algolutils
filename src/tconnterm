@@ -1,0 +1,43 @@
+s. a100,b100
+w.
+
+; connect primary output as primary input   890228/hj
+; *** works only with FP version 3 or later ***
+
+0,0
+
+   rs.    w1   b1.              ; save fp base
+   jl     w3   x1+h79-4         ; terminate curr. input
+   rl.    w1   b1.
+   rl     w2   x1+h17-2         ; prim.in addr. to w2
+   rl     w3   x1+h15           ; prim.out addr. to w3
+   rl     w1   x3+0  
+   rs     w1   x2+0             ; move prockind
+   dl     w1   x3+4             
+   ds     w1   x2+4             ; 1st namepart
+   ds.    w1   b3.
+   dl     w1   x3+8
+   ds     w1   x2+8
+   ds.    w1   b6.
+   al.    w1   b2.
+   al.    w3   b5. 
+   jd          1<11+44          ; change entry (v)
+
+   rl.    w1   b1.              ; get fp base
+   al.    w2   b5.
+   jl     w3   x1+h27-2         ; connect curr. input
+   al     w2   0                ; result = OK
+   rl.    w1   b1.
+   jl     w3   x1+h7            ; terminate program
+
+b1: 0
+b2: 1<23+8                      ; modekind (terminal)
+    0
+b3: 0
+b4: 0
+b6: 0                           ; ...doc.name
+    0,0,0,0,0                   ; tail(6..10)
+b5: <:v<0><0>:>,0,0,0
+
+e.
+e.

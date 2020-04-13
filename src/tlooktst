@@ -1,0 +1,42 @@
+
+begin
+   integer array data,answ,ident(1:30);
+   integer dhlinkno,hostno,jhhostid,homereg,netid,hostid,jhlinkno,jhnetid,mode,pda,i;
+   long array field laf;
+
+   procedure inp(s,i);
+   string s; integer i;
+
+   begin
+      write(out,"nl",1,s,<:: :>);
+      setposition(out,0,0);
+      read(in,i);
+      setposition(in,0,0);
+   end proc. inp;
+
+   inp(<:mode:>,mode);
+   if false add mode then inp(<:pda:>,ident(1)) else
+   begin
+      inp(<:dhlinkno:>,dhlinkno);
+      inp(<:dhhostno:>,hostno);
+      ident(1):=dhlinkno shift 12+hostno;
+      inp(<:hostid:>,hostid);
+      ident(2):=hostid;
+      inp(<:homereg:>,homereg);
+      inp(<:dhnetid:>,netid);
+      ident(3):=homereg shift 12+netid;
+      inp(<:jhhostid:>,jhhostid);
+      ident(4):=jhhostid;
+      inp(<:jhlinkno:>,jhlinkno);
+      inp(<:jhnetid:>,jhnetid);
+      ident(5):=jhlinkno shift 12+jhnetid;
+   end;
+
+   i:=hjlook(mode,ident,answ,data);
+   laf:=6;
+   write(out,"nl",1,<:fnc.result::>,i,"nl",1,
+        <:dhlno,hostno::>,answ(4) shift (-12),answ(4) extract 12,
+        "nl",1,<:dhhostid::>,answ(5),"nl",1,
+        <:dhhomereg,netid:>,answ(6) shift(-12),answ(6) extract 12,
+        "nl",1,<:subkind::>,data(1),"nl",1,<:name::>,data.laf,"nl",1);
+end

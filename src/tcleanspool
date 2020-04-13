@@ -1,0 +1,75 @@
+begin
+   zone z(1,1,stderror),cat(256,2,stderror);
+   integer array ia(1:20),bas(1:8),maxb(1:2),fb(1:2);
+   integer i,e,ch,count,ent;
+   array field htext;
+   boolean b;
+   real date;
+
+   htext:=6;
+   count:=0;
+   open(cat,4,<:catalog:>,0);
+   system(11,0,bas);
+   date:=systime(6,systime(7,0,0.0),0.0);
+
+   trap(TL);
+   i:=monitor(42,cat,0,ia);
+   if i<>0 then system(9,i,<:catalog:>);
+
+   ent:=ia(1)*15;
+   maxb(1):=bas(7);
+   maxb(2):=bas(8);
+
+   open(z,0,<::>,0);
+   i:=monitor(72,z,0,maxb);
+   if i<>0 then system(9,i,<:catbase:>);
+
+   for e:=1 step 1 until ent do
+   begin
+      inrec6(cat,34);
+      tofrom(ia,cat,34);
+
+      if ia(1)=-1 then else
+      if ia(2)<>maxb(1) or ia(3)<>maxb(2) or ia(1) extract 2<>3 then else
+      begin
+         b:=true;
+         for i:=1,2,3 do
+         begin
+            getchar(cat.htext,i,ch);
+            b:=b and ch=(case i-1 of ('w','r','k'));
+         end;
+
+         if b then
+         for i:=4,5,6,7,8,9 do
+         begin
+            getchar(cat.htext,i,ch);
+            b:=b and (ch>='0' and ch<='9');
+         end;
+
+         if b then b:=systime(6,ia(13),0.0)<>date;
+
+         if b then
+         begin
+            close(z,false);
+            i:=1;
+            open(z,0,string cat.htext(increase(i)),0);
+            i:=monitor(48,z,0,maxb);
+            if i=0 then 
+              count:=count+1;
+         end;
+      end;
+   end;
+
+   write(out,<:<10>sletning printfiler med baser::>,maxb(1),maxb(2),
+         <:<10>antal indgange (filer)::>,count);
+   if false then
+TL:   write(out,<:sletning af printfiler mislykket; pr|v evt. igen:>);
+
+   close(cat,true);
+   fb(1):=bas(3);
+   fb(2):=bas(4);
+   close(z,false);
+   open(z,0,<::>,0);
+   monitor(72,z,0,fb);
+
+end

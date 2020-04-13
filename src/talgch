@@ -1,0 +1,100 @@
+begin
+   zone zbs,zcom(20*128,1,stderror),cons(10,1,stderror);
+   integer i,j,k,r,cc;
+   integer array zia1(1:20),ia(1:8),ans(1:9),sia1(1:12),ans1(1:9);
+   real s;
+   array cname(1:2);
+
+   cc:=0;
+
+   system(7,0,cname);
+   open(cons,8,cname,0);
+   write(cons,<:hyppighed af "stopped": :>);
+   setposition(cons,0,0);
+   read(cons,s);
+   close(cons,false);
+
+   ia(1):=-8388607;  ia(2):=8388605;
+   open(zcom,0,<::>,0);
+   close(zcom,false);
+
+   open(zbs,4,<:algtst:>,0);
+   i:=monitor(52,zbs,0,ia);
+   if i<>0 then system(9,i,<:cr. ar.pr.:>);
+   i:=monitor(8,zbs,0,ia);
+   if i<>0 then system(9,i,<:reserve:>);
+   close(zbs,false);
+
+   while true do
+   begin
+
+      i:=monitor(20,zcom,j,ia);
+      if i<=0 then system(9,i,<:mess.:>);
+
+      if ia(1)=3 shift 12 then
+      begin
+         getzone6(zbs,zia1);
+         getshare6(zbs,sia1,1);
+
+         sia1(4):=ia(1);
+         sia1(5):=zia1(19)+sia1(2);
+         sia1(6):=sia1(5)+ia(3)-ia(2)+1;
+         sia1(7):=ia(4);
+
+         setshare6(zbs,sia1,1);
+
+         if monitor(16,zbs,1,ia)=0 then system(9,6,<:break:>);
+         i:=monitor(18,zbs,1,ans1);
+         getzone6(zcom,zia1);
+         zia1(14):=zia1(19);
+         zia1(15):=zia1(14)+ans1(2)+1;
+         setzone6(zcom,zia1);
+         tofrom(zcom,zbs,ans1(2));
+         ans(9):=i;
+         if random(r)<s then ans(1):=ans(2):=ans(3):=0 else
+         monitor(70,zcom,j,ans);
+      end else
+
+      if ia(1)=5 shift 12 then
+      begin
+         getzone6(zcom,zia1);
+         zia1(14):=zia1(19);
+         zia1(15):=zia1(14)+ia(3)-ia(2)+1;
+         setzone6(zcom,zia1);
+         monitor(70,zcom,j,ans);
+         tofrom(zbs,zcom,ans(2));
+         getzone6(zbs,zia1);
+         getshare6(zbs,sia1,1);
+
+         sia1(4):=ia(1);
+         sia1(5):=zia1(19)+sia1(2);
+         sia1(6):=sia1(5)+ans(2);
+         sia1(7):=ia(4);
+
+         setshare6(zbs,sia1,1);
+         if random(r)>s then
+         begin
+
+            if monitor(16,zbs,1,ia)=0 then system(9,6,<:break:>);
+            i:=monitor(18,zbs,1,ans1);
+            ans1(9):=i;
+         end else begin ans1(9):=1; ans1(2):=ans1(3):=ans1(1):=0 end;
+         tofrom(ans,ans1,18);
+         end;
+         ans(1):=ans1(1);
+         monitor(22,zcom,j,ans);
+if true then
+         write(out,<: <10>op:    :>,<<ddd>,ia(1) shift (-12),ia(1) extract 12,
+                   "sp",5,<: status: :>,<<ddddddd>,ans(1),<:<10>first: :>,ia(2),
+                   "sp",5,<:hw:     :>,ans(2),<:<10>last:  :>,ia(3),"sp",5,
+                   <:chars:  :>,ans(3),<:<10>segm.: :>,ia(4),"sp",5,
+                   <:result: :>,ans(9),"nl",1) else 
+        begin
+          write(out,<<ddddddd>,ia(1) shift (-12),ia(4),if ans(2)=0 then <:*:> else <: :>);
+          cc:=cc+1;
+          if cc mod 5=0 then outchar(out,10);
+        end;
+
+   end;
+
+end

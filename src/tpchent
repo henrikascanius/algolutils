@@ -1,0 +1,82 @@
+pchent=algol connect.no
+begin
+  <***************************************
+   *          PCHENT 871109/hj           *
+   *   (baseret p} DATANI A/S's xhent    *
+   ***************************************>
+
+   zone z,zin(128,1,stderror);
+   array ra(1:2),wrk(1:128);
+   integer i,j,max_6;
+   boolean filepar;
+
+
+   procedure err(s);
+   string s;
+
+   begin
+      write(out,s,"nl",1,"bel" add 128,1);
+      trapmode:=1 shift 13;
+      trap(1);
+   end;
+
+
+   boolean procedure connect_file(z,name);
+   zone z; array name;
+
+   begin
+      integer i;
+      integer array ia(1:20);
+
+      open(z,4,name,0);
+      i:=monitor(52,z,0,ia);  <* create area process *>
+      connect_file:=i=0;
+   end;
+
+
+   max_6:=600;   <* max. antal tegn pr. overf|rsel (efter konvertering ) *>
+   filepar:=false;
+
+   system(7,0,ra);  <* get prim. outp. procname *>
+   open(z,8,ra,0);
+
+   i:=system(4,1,ra);
+   if i=4 shift 12+10 then
+   begin
+      if -,connect_file(zin,ra) then err(<:kan ikke }bne inputfil p} RC8000:>);
+      filepar:=true;
+   end else if i<>0 then err(<:ulovligt programkald:>);
+
+   xhentproc(zin,z,0,wrk,max_6);  <* send startsekv. til PC *>
+   setposition(z,0,0);
+
+   ra(1):=ra(2):=real <::>;
+   readchar(z,i);  repeatchar(z);
+   if i>='a' and i<='z' then readstring(z,ra,1);
+   if ra(1)<>real <:xhent:> then err(<:pchent anulleret:>);
+
+   if -,filepar then
+   begin
+      ra(2):=real <::>;
+      readstring(z,ra,1);
+      if -,connect_file(zin,ra) then err(<:kan ikke }bne input-fil p} RC8000:>);
+   end;
+
+   setposition(z,0,0);
+   xhentproc(zin,z,1,wrk,max_6);   <* send 'OK' til PC *>
+   setposition(z,0,0);
+
+   repeat
+      repeat readchar(z,i) until i>'sp';
+      setposition(z,0,0);
+      j:=xhentproc(zin,z,i,wrk,max_6);
+      setposition(z,0,0);
+   until j>0;
+
+   outchar(z,7+128);
+   setposition(z,0,0);   <* 931120 /hj: 851-prg. kr{ver BEL til sidst! *>
+
+   close(zin,true);
+   trapmode:=1 shift 10;
+
+end

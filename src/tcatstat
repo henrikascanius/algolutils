@@ -1,0 +1,70 @@
+begin
+   zone z(128,1,stderror);
+   integer first,last,p,seg,max_ent,key,linref;
+   long array la(1:2);
+   integer array ia(1:20);
+   integer field keyw;
+   array field entr;
+   long array field name;
+
+   keyw:=2;  name:=6;
+
+   p:=1;
+   if system(4,p,la)=4 shift 12+10 then
+   begin
+      open(z,4,la,0);
+      p:=p+1;
+   end else open(z,4,<:catalog:>,0);
+
+   if monitor(42,z,0,ia)<>0 then system(9,0,<:catalog:>);
+
+   first:=0;
+   last:=ia(1);
+
+   if system(4,p,la) extract 12=4 then
+   begin
+      first:=la(1);
+      p:=p+1;
+      if system(4,p,la) extract 12<>4 then system(9,p,<:param:>);
+      if la(1)<last then last:=la(1);
+   end;
+
+   last:=last-1;
+   setposition(z,0,first);
+
+   for seg:=first step 1 until last do
+   begin
+      inrec6(z,512);
+      max_ent:=0;
+      for entr:=0 step 34 until 14*34 do
+          if z.entr.keyw<>(-1) then max_ent:=max_ent+1;
+      write(out,<:segment:>,<< ddd>,seg,"sp",3);
+
+      if max_ent=0 then write(out,<:  no entries<10><10>:>) else
+      begin
+         write(out,<< dd>,max_ent,<: entries<10>:>,"sp",14);
+         key:=seg;
+         repeat
+            linref:=0;
+            for entr:=0 step 34 until 14*34 do
+            if z.entr.keyw shift (-3) extract 9=key then
+            begin
+               if linref=5 then
+               begin
+                  linref:=0;
+                  write(out,"nl",1,"sp",14);
+               end;
+               write(out,true,12,z.entr.name);
+               linref:=linref+1;
+               max_ent:=max_ent-1;
+            end;
+
+            key:=if key=0 then ia(1)-1 else key-1;
+            if max_ent>0 then write(out,"nl",1,<:    key:>,<< ddd>,key,"sp",3);
+         until max_ent=0;
+
+         write(out,"nl",2);
+
+      end;
+   end;
+end
