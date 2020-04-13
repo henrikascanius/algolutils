@@ -1,8 +1,8 @@
 begin  <* kloning af 'snus'   890224/hj *>
    integer basel,baseu,sizel,sizeu,bdate,adate,btime,atime,contl,contu,
-           pkeyl,pkeyu,spec,i,j,p,totsegm,totentr;
+           pkeyl,pkeyu,spec,segmno,i,j,p,totsegm,totentr;
    long array nameo,la,key,docname,nil(1:2);
-   boolean leftside,create_o,base,name,size,doc,bef,aft,cont,pkey,list,b;
+   boolean leftside,create_o,base,name,size,doc,bef,aft,cont,pkey,seg,list,b;
    boolean array bkey,bname(1:12);
    integer field elb,eub,eclock,econt,esize,eif2;
    long array field ename,edoc;
@@ -114,7 +114,7 @@ begin  <* kloning af 'snus'   890224/hj *>
    nil(1):=extend 1 shift 47;
    
    list:=true;
-   name:=doc:=base:=pkey:=cont:=bef:=aft:=size:=false;
+   name:=doc:=base:=pkey:=cont:=bef:=aft:=size:=seg:=false;
    totsegm:=totentr:=0;
 
    leftside:=system(4,1,la)=6 shift 12+10;
@@ -197,6 +197,18 @@ begin  <* kloning af 'snus'   890224/hj *>
          pkey:=true;
       end else
 
+      if la(1)=long <:segm:> or la(1)=long <:segme:> add 'n' then
+      begin
+         if system(4,increase(p),la)<>8 shift 12+4 then par_err(<:bad segment number: :>,la);
+         segmno:=la(1);
+         i:=system(4,increase(p),la);
+         if i<>8 shift 12+4 then
+         begin
+            par_err(<:bad segm param:>);
+         end;
+         segm:=true;
+      end else
+
       if la(1)=long <:doc:> or la(1)=long <:docna:> add 'm' then
       begin
          if system(4,increase(p),docname)<>8 shift 12+10 then par_err(<:bad docname: :>,docname);
@@ -229,13 +241,18 @@ begin  <* kloning af 'snus'   890224/hj *>
       btime:=entier(time)//100;
    end;
    
+   if segm and -,doc then
+   begin
+      par_err(<:segment only allowed with docname:>);
+   end;
 
    begin
+      boolean array slicetbl(0:2047);
       zone zo(if leftside then 128 else 0,1,stderror),
            cat((system(2,0,la)-10000)//4,1,stderror);
       integer array ia(1:10);
       array field rec;
-      integer hw;
+      integer hw,slicelength;
       long r;
 
       boolean procedure check_name;
@@ -315,7 +332,29 @@ begin  <* kloning af 'snus'   890224/hj *>
          end;
 
       end proc. compare_clock;
-
+      
+      
+      procedure check_segment;
+      
+      begin
+      
+      end;
+      
+      if segm then
+      begin
+         integer pda;
+         integer array ia(1:20);
+         zone z(1,1,stderror);
+         
+         open(z,0,docname,0);
+         pda:=system(4,z,0,ia);
+         if pda<>0 then system(5,pda,ia);
+         if pda=0 or (ia(1)<>6 and ia(1)<>62) then
+            par_err(<:docname unknown or not bs: :>,docname);
+         slicelength:=ia(12);
+         write(out,<:slicelength: :>,slicelength);
+      end;
+         
 
                               
       
