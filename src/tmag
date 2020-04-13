@@ -1,7 +1,7 @@
 begin   <* magread/magwrite   8609/hj *>
         <* suspend, release, rewind, unload-param.     8901/hj *>
    integer lrecl,bfactor,phrecl,conv,fileno,pno,spec,blsize,trail,chperbl,i;
-   boolean trunc,wr,suspend,rewind,unload;
+   boolean trunc,wr,suspend,rewind,unload,scan;
    long array tname,fname,progname,empty,la(1:2);
 
 
@@ -54,7 +54,7 @@ begin   <* magread/magwrite   8609/hj *>
 
    conv:=lrecl:=pno:=0;
    bfactor:=1;
-   trunc:=rewind:=unload:=false;
+   trunc:=rewind:=unload:=scan:=false;
    suspend:=true;
    empty(1):=empty(2):=fname(1):=fname(2):=tname(1):=tname(2):=0;
 
@@ -114,6 +114,12 @@ begin   <* magread/magwrite   8609/hj *>
       begin
          if getpar(pno,tname)<>8 shift 12+10 then
             err(<:tape argument missing:>,empty,-1);
+         if getpar(pno+0,la)=8 shift 12+10 then
+         begin
+            if la(1)=long <:scan:> then scan:=true else
+               err(<:scan bad argument:>,la,-1);
+            pno:=pno+1;
+         end else
          if getpar(pno,la)<>8 shift 12+4 or la(1)<0 then
             err(<:filenumber missing or illegal:>,empty,-1);
          fileno:=la(1);
@@ -153,12 +159,12 @@ begin   <* magread/magwrite   8609/hj *>
 
 
 
-   if fname(1)=0 then err(<:no file-param:>,empty,-1);
+   if fname(1)=0 and -,scan then err(<:no file-param:>,empty,-1);
    if tname(1)=0 then err(<:no tape-param:>,empty,-1);
-   if lrecl=0 then err(<:no lrecl-param:>,empty,-1);
+   if lrecl=0 and -,scan then err(<:no lrecl-param:>,empty,-1);
 
 
-   chperbl:=lrecl*bfactor;
+   chperbl:=if scan then 16*768 else lrecl*bfactor;
    blsize:=(chperbl+2)//3*2;
    trail:=3-chperbl mod 3;
    if trail=3 then trail:=0;
@@ -168,7 +174,7 @@ begin   <* magread/magwrite   8609/hj *>
       integer array alpha(0:255),ia(1:20),alpha1(0:(if wr then 127 else 1)),
                     kind(1:(if wr then (lrecl+5)//6+3 else 1));
       integer hw,pos,chrs,sh,i,j,ch,bl,recs;
-      boolean eof;
+      boolean eof,eot;
       long array rec(1:(lrecl+5)//6+3);
       integer field last;
       long field last1;
@@ -181,9 +187,13 @@ begin   <* magread/magwrite   8609/hj *>
          integer array ia(1:8);
 
          if false add s then stderror(z,s,b);
-         system(14,0,ia);
-         chrs:=ia(3);
          eof:=s shift (-16) extract 1=1;
+         eot:=s shift (-18) extract 1=1;
+         if eot then b:=2 else <* or RS keeps retrying *>
+         begin
+            system(14,0,ia);
+            chrs:=ia(3);
+         end;
       end;
 
 
@@ -215,12 +225,38 @@ begin   <* magread/magwrite   8609/hj *>
          alpha1('em'):=8 shift 12+'em';
          intable(alpha1);
       end;
+      
+      if scan then fileno:=0;
 
       open(zf,4,fname,0);
-      open(zt,18+(if wr then trail else 0) shift 16,tname,1 shift 1+1 shift 7);
+      open(zt,18+(if wr then trail else 0) shift 16,tname,1 shift 1+1 shift 7+1 shift 18);
       setposition(zt,fileno,0);
-      eof:=false;
+      eof:=eot:=false;
       recs:=0;
+      
+      if scan then
+      begin
+         long recs,chrtot;
+         
+         repeat
+            recs:=chrtot:=0;
+            write(out,<:File :>,fileno,"nl",1);
+            for hw:=inrec6(zt,0) while -,eof and -,eot do
+            begin
+               inrec6(zt,hw);
+               write(out,<< ddddd>,chrs,"nl",if recs mod 10=9 then 1 else 0);
+               recs:=recs+1;
+               chrtot:=chrtot+chrs;
+            end;
+            write(out,"nl",if recs mod 10=0 then 0 else 1,
+                  <:Total: :>,recs,<: blocks:>,chrtot,<: bytes<10><10>:>);
+            if -,eot then
+            begin
+               fileno:=fileno+1;
+               setposition(zt,fileno,0);
+            end;
+         until eot;
+      end else
 
       if -,wr then
       begin  <* magread *>
