@@ -1,0 +1,426 @@
+begin  <* kloning af 'snus'   890224/hj *>
+   integer basel,baseu,sizel,sizeu,bdate,adate,btime,atime,contl,contu,
+           pkeyl,pkeyu,spec,i,j,p,totsegm,totentr;
+   long array nameo,la,key,docname,nil(1:2);
+   boolean leftside,create_o,base,name,size,doc,bef,aft,cont,pkey,list,b;
+   boolean array bkey,bname(1:12);
+   integer field elb,eub,eclock,econt,esize,eif2;
+   long array field ename,edoc;
+
+
+
+      
+   procedure err(s,i);
+   string s; integer i;
+
+   begin
+      write(out,s,<< b>,i,"nl",1);
+      trapmode:=-1;
+      trap(1);
+   end proc. err;
+   
+
+
+   procedure par_err(s,a);
+   string s; long array a;
+
+   begin
+      write(out,<:*** :>,s);
+      if a(1)=extend 1 shift 47 then else
+      if a(1) shift (-40)>0 then write(out,a) else write(out,a(1));
+      outchar(out,'nl');
+      trapmode:=-1;
+      trap(1);
+   end proc. par_err;
+   
+
+   boolean procedure yes_no(p);
+   integer p;
+
+   begin
+      long array la(1:2);
+      integer i;
+
+      i:=system(4,increase(p),la);
+      if i<>8 shift 12+10 then par_err(<:bad param: :>,la);
+      if la(1)=long <:yes:> then yes_no:=true else
+      if la(1)=long <:no:> then yes_no:=false else
+         par_err(<:bad param: :>,la);
+   end proc. yes_no;
+   
+   procedure get_date_time(p,date,time);
+   integer p,date,time;
+
+   begin
+      integer i;
+      long array la(1:2);
+
+      if system(4,increase(p),la)<>8 shift 12 + 4 then
+         par_err(<:bad date: :>,la);
+      date:=la(1) extract 24;
+      i:=system(4,increase(p),la);
+      if i<>8 shift 12 + 4 then
+      begin
+         if i shift (-12)=8 then par_err(<:bad time: :>,la);
+         if date>010101 then time:=0 else
+         begin
+            time:=date;
+            date:=systime(6,systime(7,0,0.0),0.0);
+         end;
+      p:=p-1;
+      end else time:=la(1) extract 24;
+   end proc. get_date_time;
+
+
+   
+
+   procedure display(z,e);
+   zone z;  array e;
+
+   begin
+      real time,date;
+
+      write(z,true,12,e.ename);
+      if e.esize>=0 then write(z,<<dddddd    >,e.esize) else
+       write(z,"sp",10);
+      write(z,true,12,e.edoc);
+      if e.econt shift (-12)<32 and e.econt shift (-12)<>4 and e.eclock<>0 then
+      begin
+         date:=systime(6,e.eclock,time);
+         write(z,<:d.:>,<<zddddd>,entier(date),".",1,
+               <<zddd >,entier(time)//100);
+      end else write(z,"sp",14);
+
+      write(z,<<d >,e.eif2 extract 3,
+            <<-ddddddd >,e.elb,e.eub,<<bddd >,e.econt shift (-12),"nl",1);
+      
+   end proc. display;
+   
+
+   procedure writetot(z);
+   zone z;
+
+   write(z,"nl",1,<:total::>,totsegm,
+         if totsegm=1 then <: segment,:> else <: segments,:>,
+         totentr,if totentr=1 then <: entry:> else <: entries:>,
+         "nl",2);
+
+
+         
+
+   eif2:=2;  elb:=4;  eub:=6;  ename:=6;  esize:=16;  edoc:=16;
+   eclock:=26;  econt:=32;
+   
+   nil(1):=extend 1 shift 47;
+   
+   list:=true;
+   name:=doc:=base:=pkey:=cont:=bef:=aft:=size:=false;
+   totsegm:=totentr:=0;
+
+   leftside:=system(4,1,la)=6 shift 12+10;
+   if leftside then
+   begin
+      system(4,0,nameo);
+      p:=2;
+   end else p:=1;
+
+
+
+   for i:=system(4,increase(p),la) while i<>0 do
+   begin
+      if i<>4 shift 12+10 then par_err(<:param: :>,la);
+      
+      if la(1) shift (-32) extract 8=0 then
+      begin
+         name:=true;
+         if la(1)=long <:f:> then spec:=1 else
+         if la(1)=long <:m:> then spec:=2 else
+         if la(1)=long <:s:> then spec:=3 else
+         if la(1)=long <:h:> then spec:=4 else par_err(<:param: :>,la);
+         if system(4,increase(p),key)<>8 shift 12+10 then par_err(<:param: :>,la);
+         puttext(bkey,1,key,12);
+      end else
+         
+      if la(1)=long <:base:> then
+      begin
+         if system(4,increase(p),la)<>8 shift 12+4 then par_err(<:bad lower base: :>,la);
+         basel:=la(1);
+         i:=system(4,increase(p),la);
+         if i<>8 shift 12+4 then
+         begin
+            if i shift (-12)=8 then par_err(<:bad upper base: :>,la);
+            baseu:=basel;
+            p:=p-1;
+         end else baseu:=la(1);
+         base:=true;
+      end else
+
+      if la(1)=long <:size:> then
+      begin
+         if system(4,increase(p),la)<>8 shift 12+4 then par_err(<:bad lower size: :>,la);
+         sizel:=la(1);
+         i:=system(4,increase(p),la);
+         if i<>8 shift 12+4 then
+         begin
+            if i shift (-12)=8 then par_err(<:bad upper size: :>,la);
+            sizeu:=sizel;
+            p:=p-1;
+         end else sizeu:=la(1);
+         size:=true;
+      end else
+
+      if la(1)=long <:cont:> or la(1)=long <:conte:> add 'n' then
+      begin
+         if system(4,increase(p),la)<>8 shift 12+4 then par_err(<:bad lower content: :>,la);
+         contl:=la(1);
+         i:=system(4,increase(p),la);
+         if i<>8 shift 12+4 then
+         begin
+            if i shift (-12)=8 then par_err(<:bad upper content: :>,la);
+            contu:=contl;
+            p:=p-1;
+         end else contu:=la(1);
+         cont:=true;
+      end else
+
+      if la(1)=long <:key:> or la(1)=long <:permk:> add 'e' then
+      begin
+         if system(4,increase(p),la)<>8 shift 12+4 then par_err(<:bad lower permkey: :>,la);
+         pkeyl:=la(1);
+         i:=system(4,increase(p),la);
+         if i<>8 shift 12+4 then
+         begin
+            if i shift (-12)=8 then par_err(<:bad upper permkey: :>,la);
+            pkeyu:=pkeyl;
+            p:=p-1;
+         end else pkeyu:=la(1);
+         pkey:=true;
+      end else
+
+      if la(1)=long <:doc:> or la(1)=long <:docna:> add 'm' then
+      begin
+         if system(4,increase(p),docname)<>8 shift 12+10 then par_err(<:bad docname: :>,docname);
+         doc:=true;
+      end else
+      
+      if la(1)=long <:bef:> or la(1)=long <:befor:> add 'e' then
+      begin
+         bef:=true;
+         get_date_time(p,bdate,btime);
+      end else
+
+      if la(1)=long <:aft:> or la(1)=long <:after:> then
+      begin
+         aft:=true;
+         get_date_time(p,adate,atime);
+      end else
+      
+      if la(1)=long <:list:> or la(1)=long <:liste:> then
+         list:=yes_no(p) else par_err(<:param: :>,la);
+      
+   end;  
+
+   if aft and -,bef then
+   begin  <* suppr. entries with bad clock *>
+      real time;
+
+      bef:=true;
+      bdate:=systime(6,systime(7,0,0.0),time);
+      btime:=entier(time)//100;
+   end;
+   
+
+   begin
+      zone zo(if leftside then 128 else 0,1,stderror),
+           cat((system(2,0,la)-10000)//4,1,stderror);
+      integer array ia(1:10);
+      array field rec;
+      integer hw;
+      long r;
+
+      boolean procedure check_name;
+
+      begin
+         integer i,j;
+         boolean b;
+      
+         case spec of
+         begin
+
+            begin  <* f: starten af navn *>
+               for i:=0,i while bname(i) extract 12=bkey(i) extract 12
+                                and (bname(i) or bkey(i)) extract 12<>0 do i:=i+1;
+               b:=bkey(i) extract 12=0;
+            end;
+
+            begin  <* m: vilk. sted i navn *>
+               i:=1;
+               b:=false;
+
+               repeat
+                  while bname(i) extract 12<>bkey(1) extract 12
+                        and bname(i) extract 12<>0 do i:=i+1;
+                  if bname(i) extract 12<>0 then
+                  begin
+                     for j:=0,j while bname(i+j-1) extract 12=bkey(j) extract 12
+                                      and bkey(j) extract 12<>0
+                                      and bname(i+j-1)extract 12<>0 do j:=j+1;
+                     b:=bkey(j) extract 12=0;
+                     if -,b then i:=i+1;
+                  end;
+               until b or bname(i) extract 12=0;
+            end;
+
+            begin  <* s: sidst i navn *>
+               for i:=0,i while bkey(i) extract 12<>0 do i:=i+1;
+               for j:=0,j while bname(j) extract 12<>0 do j:=j+1;
+               if i>j then b:=false else
+               begin
+                  b:=true;
+                  for i:=i-1 while i>0 and b do
+                  begin
+                     j:=j-1;
+                     b:=bkey(i) extract 12=bname(j) extract 12;
+                  end;
+               end;
+            end;
+
+            begin  <* h: hele navnet *>
+               b:=cat.rec.ename(1)=key(1) and cat.rec.ename(2)=key(2);
+            end;
+
+         end case;
+
+         check_name:=b;
+
+      end proc. check_name;
+      
+
+
+      integer procedure compare_clock(clock,date,time);
+      value clock,date,time; integer clock,date,time;
+
+      begin
+         real ctime;
+         integer cdate,dif;
+
+         cdate:=systime(6,clock,ctime);
+         dif:=date-cdate;
+         if dif>0 then compare_clock:=1 else
+         if dif<0 then compare_clock:=(-1) else
+         begin          
+            dif:=time-entier(ctime)//100; 
+            compare_clock:=if dif>0 then 1 else
+                           if dif<0 then (-1) else 0;
+         end;
+
+      end proc. compare_clock;
+
+
+                              
+      
+      if leftside then
+      begin
+         open(zo,4,nameo,0);
+         i:=monitor(52,zo,0,ia);
+         if i=0 then i:=monitor(8,zo,0,ia);
+         if i<>0 then
+         begin
+            ia(1):=1;
+            ia(6):=systime(7,0,0.0);
+            for i:=2,3,4,5,7,8,9,10 do ia(i):=0;
+            i:=monitor(40,zo,0,ia);
+            if i=0 then i:=monitor(52,zo,0,ia);
+            if i=0 then i:=monitor(8,zo,0,ia);
+            if i<>0 then err(<:*** snus connect output:>,0);
+            create_o:=true;
+         end else
+         begin
+            i:=monitor(42,zo,0,ia);
+            ia(6):=systime(7,0,0.0);
+            monitor(44,zo,0,ia);
+         end;
+      end;
+
+   
+
+      open(cat,4,<:catalog:>,0);
+
+      for hw:=inrec6(cat,0) while hw>2 do
+      begin
+         inrec6(cat,hw);
+         for rec:=0,rec+(if rec extract 9=14*34 then 36 else 34) while rec<hw do
+         begin
+         
+         
+            if cat.rec.eif2=(-1) then else
+            begin
+         
+               if -,base then else
+               if cat.rec.elb<basel or cat.rec.eub>baseu then goto FAIL;
+               
+               if -,doc then else
+               if cat.rec.edoc(1)<>docname(1) or cat.rec.edoc(2)<>docname(2)
+                  then goto FAIL;
+                  
+               if -,size then else
+               if cat.rec.esize<sizel or cat.rec.esize>sizeu then goto FAIL;
+
+               if -,cont then else
+               if cat.rec.econt shift (-12)<contl or cat.rec.econt shift (-12)>contu
+                  then goto FAIL;
+
+               if -,pkey then else
+               if cat.rec.eif2 extract 2<pkeyl or cat.rec.eif2 extract 2>pkeyu
+                  then goto FAIL;
+               
+               if -,bef then else
+               if cat.rec.econt shift (-12)>31 or cat.rec.econt shift (-12)=4
+                or cat.rec.eclock=0 then goto FAIL else
+               if compare_clock(cat.rec.eclock,bdate,btime)<0 then goto FAIL;
+
+               if -,aft then else
+               if cat.rec.econt shift (-12)>31 or cat.rec.econt shift (-12)=4
+                or cat.rec.eclock=0 then goto FAIL else 
+               if compare_clock(cat.rec.eclock,adate,atime)>0 then goto FAIL;
+                  
+               if -,name then else
+               begin
+                  r:=cat.rec.ename(1);
+                  for i:=6 step (-1) until 1 do
+                  begin
+                     bname(i):=false add (r extract 8);
+                     r:=r shift (-8);
+                  end;
+                  r:=cat.rec.ename(2);
+                  for i:=12 step (-1) until 7 do
+                  begin
+                     bname(i):=false add (r extract 8);
+                     r:=r shift (-8);
+                  end;
+               
+                  if -,check_name then goto FAIL;
+               end;
+               
+               if -,list then else
+               if leftside then display(zo,cat.rec) else display(out,cat.rec);
+               totentr:=totentr+1;
+               if cat.rec.esize>0 then totsegm:=totsegm+cat.rec.esize;
+FAIL:
+            end;
+         end;
+      end;
+      close(cat,true);
+
+      if leftside then
+      begin
+         writetot(zo);
+         outchar(zo,'em');
+         close_cut(zo,true);
+      end;
+
+      writetot(out);
+      trapmode:=-1;
+
+   end;
+end
