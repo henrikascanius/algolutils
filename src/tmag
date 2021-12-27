@@ -1,7 +1,7 @@
 begin   <* magread/magwrite   8609/hj *>
         <* suspend, release, rewind, unload-param.     8901/hj *>
    integer lrecl,bfactor,phrecl,conv,fileno,pno,spec,blsize,trail,chperbl,i;
-   boolean trunc,wr,suspend,rewind,unload,scan;
+   boolean trunc,wr,suspend,rewind,unload,scan,loadall;
    long array tname,fname,progname,empty,la(1:2);
 
 
@@ -116,8 +116,12 @@ begin   <* magread/magwrite   8609/hj *>
             err(<:tape argument missing:>,empty,-1);
          if getpar(pno+0,la)=8 shift 12+10 then
          begin
-            if la(1)=long <:scan:> then scan:=true else
-               err(<:scan bad argument:>,la,-1);
+            if la(1)=long <:scan:> or la(1)=long <:ldall:> then
+            begin
+               scan:=true;
+               loadall:=la(1)=long <:ldall:>;
+            end else
+               err(<:tape bad argument:>,la,-1);
             pno:=pno+1;
          end else
          if getpar(pno,la)<>8 shift 12+4 or la(1)<0 then
@@ -202,7 +206,7 @@ begin   <* magread/magwrite   8609/hj *>
 
       if conv=0 then
       begin
-         for i:=0 step 1 until 127 do alpha(i):=2 shift 12+i;
+         for i:=0 step 1 until 255 do alpha(i):=2 shift 12+i extract 7;
       end else
 
       if conv=1 then
@@ -228,25 +232,61 @@ begin   <* magread/magwrite   8609/hj *>
       
       if scan then fileno:=0;
 
-      open(zf,4,fname,0);
+      if -,scan then open(zf,4,fname,0);
       open(zt,18+(if wr then trail else 0) shift 16,tname,1 shift 1+1 shift 7+1 shift 18);
       setposition(zt,fileno,0);
       eof:=eot:=false;
       recs:=0;
       
-      if scan then
+      if scan then <* scan also true w. loadall *>
       begin
          long recs,chrtot;
+         integer wrlen;
+         integer array tail(1:10);
+         long array field laf;
          
          repeat
             recs:=chrtot:=0;
             write(out,<:File :>,fileno,"nl",1);
+            if loadall then
+            begin
+               fname(1):=fname(2):=0;
+               i:=1;
+               puttext(fname,i,tname);
+               putchar(fname,i,'f');
+               putnumber(fname,i,<<d>,fileno); <* Crash if too long, no check! *>
+               open(zf,4,fname,0);
+               tail(1):=1;
+               for i:=2 step 1 until 10 do
+                  tail(i):=0;
+               monitor(40,zf,0,tail); <*create entry *>
+            end;
             for hw:=inrec6(zt,0) while -,eof and -,eot do
             begin
                inrec6(zt,hw);
                write(out,<< ddddd>,chrs,"nl",if recs mod 10=9 then 1 else 0);
                recs:=recs+1;
                chrtot:=chrtot+chrs;
+               if loadall then
+               begin
+                  if chrs mod 3 <> 0 then
+                     write(out,<: *** ldall incompatible blocklength<10>:>);
+                  laf:=0;
+                  while hw>0 do
+                  begin
+                     i:=outrec6(zf,0);
+                     wrlen:=if hw<=i then hw else i;
+                     outrec6(zf,wrlen);
+                     tofrom(zf,zt.laf,wrlen);
+                     laf:=laf+wrlen;
+                     hw:=hw-wrlen;
+                  end;
+               end;
+            end;
+            if loadall then
+            begin
+               close(zf,true);
+               if chrtot=0 then monitor(48,zf,0,tail); <* remove entry *>
             end;
             write(out,"nl",if recs mod 10=0 then 0 else 1,
                   <:Total: :>,recs,<: blocks:>,chrtot,<: bytes<10><10>:>);
