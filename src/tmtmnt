@@ -1,0 +1,101 @@
+; tmtmnt   21-11-08 translate w. connect.no
+begin
+   zone z(12,1,bproc);
+   integer array ia(1:10),ans(1:8);
+   long array field laf0,laf2;
+   array parm,filename(1:11);
+   integer i,j,p,devno;
+   boolean fail;
+   long array devname(1:2);
+
+
+<********************************************************************
+*****
+*****               Block procedure for tape
+*****
+*********************************************************************>
+
+   procedure bproc(z,s,b);
+   zone z; integer s,b;
+
+   begin
+      if s shift (-20) extract 1 <> 0 then fail:=true;
+      b:=2;
+   end;
+   
+<********************************************************************
+*****
+*****                  Error reporting procedures
+*****
+*********************************************************************>
+
+   procedure err(s,i);
+   string s; integer i;
+
+   begin
+      write(out,s,<< b>,i,"nl",1);
+      trapmode:=-1;
+      trap(1);
+   end proc. err;
+
+   procedure par_err(s,a);
+   string s; long array a;
+
+   begin
+      write(out,<:*** :>,s);
+      if a(1)=extend 1 shift 47 then else
+      if a(1) shift (-40)>0 then write(out,a) else write(out,a(1));
+      outchar(out,'nl');
+      trapmode:=-1;
+      trap(1);
+   end proc. par_err;
+
+<********************************************************************
+*****
+*****                      get call parameters
+*****
+*********************************************************************>
+
+   p:=1;
+   laf0:=0;
+   laf2:=2;
+   fail:=false;
+
+   if nsystem(4,increase(p),parm)<>4 shift 12+4 then par_err(<:Illegal devno: :>,parm.laf0);
+   devno:=parm(1);
+   if nsystem(4,increase(p),parm)<>4 shift 12+10 then par_err(<:Illegal devname: :>,parm.laf0);
+   tofrom(devname,parm,8);
+   i:=nsystem(4,increase(p),parm);
+   if i shift (-12)<>4 or i extract 12 < 10 then par_err(<:illegal filename: :>,parm.laf0);
+   tofrom(filename,parm,44);
+   
+
+<********************************************************************
+*****
+*****                    create peripheral process
+*****
+*********************************************************************>
+
+   open(z,0,devname,0);
+   ia(1):=devno;
+   monitor(64,z,0,ia); <* remove process, this is NOT nice! *>
+   i:=monitor(54,z,devno,ia);
+   if i<>0 then err(<:*** create peripheral process result:>,i);
+   close(z,false);
+
+<********************************************************************
+*****
+*****                         attach DOS file
+*****
+*********************************************************************>
+
+   <* Handle as internal process, to avoid tape move and tapemarks *>
+   open(z,2 shift 12+0,devname,9 shift 20); <* even parity, trap on overrun+intervention *>
+   outrec6(z,2+44);
+   z(1):=real extend 0;
+   tofrom(z.laf2,filename,44);
+   close(z,false);
+   if fail then err(<:*** attach tape file failed:>,0);
+   trapmode:=-1;
+end
+
