@@ -161,14 +161,14 @@ begin   <* magread/magwrite   8609/hj *>
 
    end;
 
-
-
    if fname(1)=0 and -,scan then err(<:no file-param:>,empty,-1);
    if tname(1)=0 then err(<:no tape-param:>,empty,-1);
    if lrecl=0 and -,scan then err(<:no lrecl-param:>,empty,-1);
 
+   if loadall and tname(2) shift (-8) extract 24 <>0 then
+      err(<:tapename too long for ldall (max. 8 chars): :>,tname,0);
 
-   chperbl:=if scan then 16*768 else lrecl*bfactor;
+   chperbl:=if scan then 96*768 else lrecl*bfactor;
    blsize:=(chperbl+2)//3*2;
    trail:=3-chperbl mod 3;
    if trail=3 then trail:=0;
@@ -240,13 +240,13 @@ begin   <* magread/magwrite   8609/hj *>
       
       if scan then <* scan also true w. loadall *>
       begin
-         long recs,chrtot;
+         long recs,chrtot,hwtot;
          integer wrlen;
          integer array tail(1:10);
          long array field laf;
          
          repeat
-            recs:=chrtot:=0;
+            recs:=chrtot:=hwtot:=0;
             write(out,<:File :>,fileno,"nl",1);
             if loadall then
             begin
@@ -254,7 +254,7 @@ begin   <* magread/magwrite   8609/hj *>
                i:=1;
                puttext(fname,i,tname);
                putchar(fname,i,'f');
-               putnumber(fname,i,<<d>,fileno); <* Crash if too long, no check! *>
+               putnumber(fname,i,<<zd>,fileno);
                open(zf,4,fname,0);
                tail(1):=1;
                for i:=2 step 1 until 10 do
@@ -264,6 +264,7 @@ begin   <* magread/magwrite   8609/hj *>
             for hw:=inrec6(zt,0) while -,eof and -,eot do
             begin
                inrec6(zt,hw);
+               hwtot:=hwtot+hw;
                write(out,<< ddddd>,chrs,"nl",if recs mod 10=9 then 1 else 0);
                recs:=recs+1;
                chrtot:=chrtot+chrs;
@@ -286,7 +287,15 @@ begin   <* magread/magwrite   8609/hj *>
             if loadall then
             begin
                close(zf,true);
-               if chrtot=0 then monitor(48,zf,0,tail); <* remove entry *>
+               if chrtot=0 then
+               begin
+                  monitor(48,zf,0,tail); <* remove entry *>
+                  eot:=true; <* in loadall mode, don't load trailing garbage *>
+               end else
+               begin  <* adjust size *>
+                  tail(1):=(hwtot+511)//512;
+                  monitor(44,zf,0,tail);
+               end;
             end;
             write(out,"nl",if recs mod 10=0 then 0 else 1,
                   <:Total: :>,recs,<: blocks:>,chrtot,<: bytes<10><10>:>);
